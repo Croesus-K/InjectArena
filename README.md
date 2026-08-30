@@ -134,3 +134,7 @@ GitHub Actions：push/PR 自动 `npm ci && npm test`（Node 24）。
 ## License
 
 MIT
+
+## Disclaimer / 免责声明
+
+InjectArena is an **intentionally vulnerable application for authorized security education only**. Run it locally or on infrastructure you control; never expose it to the public internet with a real API key. You are responsible for your own usage, API cost and compliance. Prompt-injection techniques demonstrated here must only be tested against systems you own or have explicit permission to test.
