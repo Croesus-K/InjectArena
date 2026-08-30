@@ -9,18 +9,30 @@ const path = require('node:path');
 
 const { validate } = require('./jsonschema.js');
 
+// 数据目录只能位于项目根之内（纵深防御：加载器自身校验，不依赖调用方自觉）
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+
+function assertInsideRoot(dir) {
+  const resolved = path.resolve(dir);
+  if (resolved !== PROJECT_ROOT && !resolved.startsWith(PROJECT_ROOT + path.sep)) {
+    throw new Error('拒绝加载数据目录（越出项目根）: ' + dir);
+  }
+  return resolved;
+}
+
 /**
  * @param {string} dir levels 目录（含 schema.json）
  * @returns {Array<object>} 通过校验的关卡定义，按文件名排序
  */
 function loadLevels(dir) {
-  const schema = JSON.parse(fs.readFileSync(path.join(dir, 'schema.json'), 'utf8'));
+  const root = assertInsideRoot(dir);
+  const schema = JSON.parse(fs.readFileSync(path.join(root, 'schema.json'), 'utf8'));
   const files = fs
-    .readdirSync(dir)
+    .readdirSync(root)
     .filter((f) => f.endsWith('.json') && f !== 'schema.json')
     .sort();
   return files.map((f) => {
-    const raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(path.join(root, f), 'utf8'));
     const check = validate(schema, raw);
     if (!check.valid) {
       throw new Error(

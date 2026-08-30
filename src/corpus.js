@@ -9,18 +9,32 @@ const path = require('node:path');
 
 const { validate } = require('./jsonschema.js');
 
+// 数据目录是模块内固定常量：加载器不接收任何路径参数，从根上杜绝路径穿越
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const CORPUS_DIR = path.join(PROJECT_ROOT, 'corpus');
+
+function assertInsideRoot(dir) {
+  const resolved = path.resolve(dir);
+  if (resolved !== PROJECT_ROOT && !resolved.startsWith(PROJECT_ROOT + path.sep)) {
+    throw new Error('拒绝加载数据目录（越出项目根）: ' + dir);
+  }
+  return resolved;
+}
+
 /**
- * @param {string} dir corpus 目录（含 schema.json）
+ * 加载 corpus/ 下全部语料库（逐一过 schema 校验）。
+ * 无参数：目录为模块常量，调用方无法注入任意路径。
  * @returns {Array<object>} 通过校验的语料库集合
  */
-function loadCorpus(dir) {
-  const schema = JSON.parse(fs.readFileSync(path.join(dir, 'schema.json'), 'utf8'));
+function loadCorpus() {
+  const root = assertInsideRoot(CORPUS_DIR);
+  const schema = JSON.parse(fs.readFileSync(path.join(root, 'schema.json'), 'utf8'));
   const files = fs
-    .readdirSync(dir)
+    .readdirSync(root)
     .filter((f) => f.endsWith('.json') && f !== 'schema.json')
     .sort();
   return files.map((f) => {
-    const raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(path.join(root, f), 'utf8'));
     const check = validate(schema, raw);
     if (!check.valid) {
       throw new Error(

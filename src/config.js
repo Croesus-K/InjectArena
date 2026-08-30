@@ -51,6 +51,11 @@ function loadConfig(env) {
     chatRate: {
       capacity: Number(e.INJECTARENA_CHAT_RATE_CAPACITY || 10),
       refillPerMinute: Number(e.INJECTARENA_CHAT_RATE_REFILL || 10)
+    },
+    // 守方评分一次评测 = 语料条数 × 真实 LLM 调用，成本高，默认限得更紧
+    defenseRate: {
+      capacity: Number(e.INJECTARENA_DEFENSE_RATE_CAPACITY || 2),
+      refillPerMinute: Number(e.INJECTARENA_DEFENSE_RATE_REFILL || 2)
     }
   };
 }
