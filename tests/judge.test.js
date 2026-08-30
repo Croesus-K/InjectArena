@@ -52,10 +52,12 @@ test('normalizeOutput：折叠空白、去首尾', () => {
   assert.equal(normalizeOutput(null), '');
 });
 
-test('自洽性：关卡系统提示词必然能被自身判据命中（保证“破阵可达”）', () => {
-  const l1 = require('../levels/L1.json');
-  const l2 = require('../levels/L2.json');
-  for (const lv of [l1, l2]) {
+test('自洽性：每关系统提示词必然能被自身判据命中（保证“破阵可达”）', () => {
+  const path = require('node:path');
+  const { loadLevels } = require('../src/levels.js');
+  const levels = loadLevels(path.join(__dirname, '..', 'levels'));
+  assert.ok(levels.length >= 3);
+  for (const lv of levels) {
     assert.equal(judge(lv, lv.systemPrompt).passed, true, lv.id + ' 的 secret 应存在于其 systemPrompt 中');
   }
 });
