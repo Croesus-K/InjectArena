@@ -65,10 +65,50 @@ test('非 200 状态：抛 ProviderError 且带状态码', async () => {
   );
 });
 
-test('畸形响应：缺 choices 抛错', async () => {
+test('畸形响应：既无文本也无 tool_calls 抛错', async () => {
   const fetchImpl = okFetch({ object: 'error' });
   const provider = createOpenAICompatible({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl });
-  await assert.rejects(() => provider.chat([], {}), /choices\[0\]\.message\.content/);
+  await assert.rejects(() => provider.chat([], {}), /message\.content 或 tool_calls/);
+});
+
+test('tools 透传与 tool_calls 解析（L5 工具滥用攻击面）', async () => {
+  const tools = [{ name: 'send_report', description: '发报告', parameters: { type: 'object' } }];
+  const fetchImpl = okFetch({
+    choices: [{
+      message: {
+        content: null,
+        tool_calls: [{
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'send_report', arguments: '{"destination":"兵部","content":"报告"}' }
+        }]
+      }
+    }],
+    usage: { total_tokens: 55 }
+  });
+  const provider = createOpenAICompatible({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl });
+  const res = await provider.chat([{ role: 'user', content: '发报告' }], { tools });
+
+  const sentTools = JSON.parse(okFetch.lastOptions.body).tools;
+  assert.deepEqual(sentTools, [{
+    type: 'function',
+    function: { name: 'send_report', description: '发报告', parameters: { type: 'object' } }
+  }], '简洁工具定义自动包成 OpenAI 线上格式');
+  assert.equal(res.text, '');
+  assert.equal(res.tokens, 55);
+  assert.equal(res.toolCalls.length, 1);
+  assert.equal(res.toolCalls[0].id, 'call_1');
+  assert.equal(res.toolCalls[0].name, 'send_report');
+  assert.deepEqual(res.toolCalls[0].args, { destination: '兵部', content: '报告' }, 'arguments JSON 自动解析');
+});
+
+test('tool_calls 的畸形 arguments 解析为空对象而非抛错', async () => {
+  const fetchImpl = okFetch({
+    choices: [{ message: { content: null, tool_calls: [{ id: 'c', function: { name: 'x', arguments: 'not-json' } }] } }]
+  });
+  const provider = createOpenAICompatible({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl });
+  const res = await provider.chat([], {});
+  assert.deepEqual(res.toolCalls[0].args, {});
 });
 
 test('配置缺失：快速失败并给出明确中文错误', () => {

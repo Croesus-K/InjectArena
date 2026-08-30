@@ -71,6 +71,13 @@ function createOpenAICompatible(config) {
       temperature: typeof opts.temperature === 'number' ? opts.temperature : defaultTemperature,
       max_tokens: opts.maxTokens || defaultMaxTokens
     };
+    if (Array.isArray(opts.tools) && opts.tools.length > 0) {
+      // 关卡工具定义是简洁的 {name, description, parameters}——
+      // 这里统一包成 OpenAI 线上格式 {"type":"function","function":{...}}
+      body.tools = opts.tools.map((t) => (t && t.type === 'function' && t.function
+        ? t
+        : { type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+    }
 
     for (let attempt = 1; ; attempt += 1) {
       const controller = new AbortController();
@@ -116,13 +123,30 @@ function createOpenAICompatible(config) {
         throw new ProviderError('LLM 服务返回非 JSON 响应', res.status);
       }
       const choice = data && data.choices && data.choices[0];
-      const text = choice && choice.message && typeof choice.message.content === 'string'
-        ? choice.message.content
-        : null;
-      if (text === null) throw new ProviderError('LLM 服务响应缺少 choices[0].message.content', res.status);
+      const message = choice && choice.message ? choice.message : null;
+      const text = message && typeof message.content === 'string' ? message.content : '';
+      const rawCalls = message && Array.isArray(message.tool_calls) ? message.tool_calls : [];
+      const toolCalls = rawCalls.map((tc) => ({
+        id: tc.id || '',
+        name: tc.function && tc.function.name ? tc.function.name : '',
+        args: safeParseArgs(tc.function && tc.function.arguments)
+      }));
+      if (!text && toolCalls.length === 0) {
+        throw new ProviderError('LLM 服务响应缺少 message.content 或 tool_calls', res.status);
+      }
 
       const tokens = data.usage && typeof data.usage.total_tokens === 'number' ? data.usage.total_tokens : undefined;
-      return { text, tokens };
+      return { text, toolCalls, tokens };
+    }
+  }
+
+  function safeParseArgs(raw) {
+    if (typeof raw !== 'string' || raw.length === 0) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
     }
   }
 
