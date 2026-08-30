@@ -58,20 +58,20 @@ test('corpus/ 语料库通过 schema 校验', () => {
   assert.deepEqual(corpora.map((c) => c.id), ['data-exfiltration', 'direct-injection', 'indirect-injection', 'tool-abuse']);
 });
 
-test('语料库规模与质量约束：直接注入 ≥50、数据窃取 ≥15、间接注入 ≥12、工具滥用 ≥10、id 唯一、中英混合', () => {
+test('语料库规模与质量约束：直接注入 ≥50、数据窃取 ≥15、间接注入 ≥20、工具滥用 ≥15、id 唯一、中英混合', () => {
   const corpora = loadCorpus();
   const byId = new Map(corpora.map((c) => [c.id, c]));
   assert.ok(byId.get('direct-injection').payloads.length >= 50,
     '直接注入语料至少 50 条（当前 ' + byId.get('direct-injection').payloads.length + '）');
   assert.ok(byId.get('data-exfiltration').payloads.length >= 15,
     '数据窃取语料至少 15 条（当前 ' + byId.get('data-exfiltration').payloads.length + '）');
-  assert.ok(byId.get('indirect-injection').payloads.length >= 12,
-    '间接注入语料至少 12 条（当前 ' + byId.get('indirect-injection').payloads.length + '）');
-  assert.ok(byId.get('tool-abuse').payloads.length >= 10,
-    '工具滥用语料至少 10 条（当前 ' + byId.get('tool-abuse').payloads.length + '）');
+  assert.ok(byId.get('indirect-injection').payloads.length >= 20,
+    '间接注入语料至少 20 条（当前 ' + byId.get('indirect-injection').payloads.length + '）');
+  assert.ok(byId.get('tool-abuse').payloads.length >= 15,
+    '工具滥用语料至少 15 条（当前 ' + byId.get('tool-abuse').payloads.length + '）');
 
   const payloads = flattenCorpus(corpora);
-  assert.ok(payloads.length >= 87, '语料总量至少 87 条（当前 ' + payloads.length + '）');
+  assert.ok(payloads.length >= 100, '语料总量至少 100 条（当前 ' + payloads.length + '）');
 
   const ids = new Set(payloads.map((p) => p.corpusId + '/' + p.id));
   assert.equal(ids.size, payloads.length, 'payload id 在全库范围必须唯一');
