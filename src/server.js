@@ -21,6 +21,7 @@ const { TokenBucketLimiter } = require('./rateLimiter.js');
 const { loadLevels, publicLevel } = require('./levels.js');
 const { loadCorpus, flattenCorpus } = require('./corpus.js');
 const { evaluateDefense } = require('./defenseEvaluator.js');
+const { runAgentTurn } = require('./agentRunner.js');
 const { buildRetrievalContext } = require('./retriever.js');
 const { openAuditDb, insertAudit } = require('./db.js');
 const { createProviderRegistry } = require('./provider/index.js');
@@ -189,9 +190,29 @@ function buildServer(config, deps) {
     }
 
     const full = [{ role: 'system', content: level.systemPrompt + rag.context }].concat(messages);
-    let res;
+
+    let agentResult;
     try {
-      res = await llm.chat(full, {});
+      if (Array.isArray(level.tools) && level.tools.length > 0) {
+        // L5 类关卡：代理持有工具，判定扩展到工具调用参数（机密可经工具外传）
+        agentResult = await runAgentTurn({
+          level,
+          llm,
+          judge,
+          history: messages,
+          executeTool: (name, args) => {
+            // 模拟工具执行：只落审计账、不真外发（send_report 是虚构渠道）
+            insertAudit(db, {
+              ts: new Date().toISOString(), ip, route: 'tool', levelId: level.id,
+              payloadChars: JSON.stringify(args || {}).length, outcome: 'tool-call', detail: name
+            });
+            return { record: { sent: true }, result: '报告已送达。' };
+          }
+        });
+      } else {
+        const res = await llm.chat(full, {});
+        agentResult = { reply: res.text, toolTrace: [], verdict: judge(level, res.text), tokens: res.tokens };
+      }
     } catch (err) {
       reply.code(502);
       insertAudit(db, {
@@ -201,25 +222,26 @@ function buildServer(config, deps) {
       return { error: 'LLM 服务调用失败：' + (err.message || err) };
     }
 
-    const verdict = judge(level, res.text);
+    const verdict = agentResult.verdict;
     if (verdict.passed) {
       const prev = bestBreach.get(level.id);
       if (!prev || payloadText.length < prev.chars) {
-        bestBreach.set(level.id, { chars: payloadText.length, tokens: res.tokens === undefined ? null : res.tokens });
+        bestBreach.set(level.id, { chars: payloadText.length, tokens: agentResult.tokens === undefined ? null : agentResult.tokens });
       }
     }
     insertAudit(db, {
       ts: new Date().toISOString(), ip, route: 'chat', levelId: level.id,
-      payloadChars: payloadText.length, tokens: res.tokens === undefined ? null : res.tokens,
+      payloadChars: payloadText.length, tokens: agentResult.tokens === undefined ? null : agentResult.tokens,
       passed: verdict.passed, outcome: verdict.passed ? 'breached' : 'defended'
     });
 
     return {
-      reply: res.text,
+      reply: agentResult.reply,
       // matched 命中的值就是 secret，绝不随响应外传
       judged: { passed: verdict.passed, criterion: verdict.criterion },
-      tokens: res.tokens === undefined ? null : res.tokens,
-      retrieved: rag.retrieved
+      tokens: agentResult.tokens === undefined ? null : agentResult.tokens,
+      retrieved: rag.retrieved,
+      toolTrace: agentResult.toolTrace
     };
   });
 
@@ -274,7 +296,9 @@ function buildServer(config, deps) {
         llm: providerFor(level),
         judge,
         // RAG 类关卡：跑分时同样注入检索上下文（闯关与跑分同一形状）
-        contextFor: (lv, text) => buildRetrievalContext(lv, text).context
+        contextFor: (lv, text) => buildRetrievalContext(lv, text).context,
+        // 工具类关卡：跑分时同样允许工具调用（判定含工具参数）
+        toolsFor: (lv) => (Array.isArray(lv.tools) && lv.tools.length > 0 ? lv.tools : null)
       });
     } catch (err) {
       reply.code(500);
