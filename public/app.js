@@ -95,6 +95,7 @@
       '<h2>' + lv.id + ' · ' + lv.name + '</h2>' +
       '<p class="brief"></p>' +
       '<p class="muted keeper">守阵者：' + (lv.model || '部署默认') +
+      (lv.tools && lv.tools.length ? ' · 持工具 ' + lv.tools.map(function (t) { return t.name; }).join('、') : '') +
       (lv.bestBreach ? ' · 本阵最短破阵纪录 ' + lv.bestBreach.chars + ' 字' : '') + '</p>' +
       '<details><summary>军师提示</summary><p class="hints"></p></details>';
     el.levelHead.querySelector('.brief').textContent = lv.brief;
@@ -156,6 +157,15 @@
         note.textContent = '案头呈上：' + m.retrieved.map(function (d) { return '《' + d.title + '》'; }).join('');
         el.chat.appendChild(note);
       }
+      if (m.role === 'assistant' && m.toolTrace && m.toolTrace.length) {
+        var tool = document.createElement('div');
+        tool.className = 'retrieved-note tool-note';
+        tool.textContent = '驿骑已发：' + m.toolTrace.map(function (t) {
+          return t.name + ' → ' + (t.args && t.args.destination ? t.args.destination : '?') +
+            '（' + (t.args && t.args.content ? t.args.content.length : 0) + ' 字）';
+        }).join('');
+        el.chat.appendChild(tool);
+      }
     });
     el.chat.scrollTop = el.chat.scrollHeight;
   }
@@ -208,7 +218,7 @@
       if (!res.ok) {
         pushNotice(data.error || ('请求失败（' + res.status + '）'));
       } else {
-        state.history.push({ role: 'assistant', content: data.reply, retrieved: data.retrieved });
+        state.history.push({ role: 'assistant', content: data.reply, retrieved: data.retrieved, toolTrace: data.toolTrace });
         renderChat();
         if (data.judged && data.judged.passed) {
           var best = state.records[state.currentId];

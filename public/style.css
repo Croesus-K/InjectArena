@@ -303,3 +303,5 @@ footer {
   margin: -4px 0 8px;
   padding-left: 2px;
 }
+
+.retrieved-note.tool-note { color: #7ea6d9; }
