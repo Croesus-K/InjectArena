@@ -37,7 +37,8 @@
     rejectMarker: document.getElementById('reject-marker'),
     defenseRun: document.getElementById('defense-run'),
     defenseStatus: document.getElementById('defense-status'),
-    defenseReport: document.getElementById('defense-report')
+    defenseReport: document.getElementById('defense-report'),
+    defenseLimit: document.getElementById('defense-limit')
   };
 
   var SURFACE_NAMES = {
@@ -63,14 +64,23 @@
 
   /* ---------- 阵法列表 ---------- */
 
+  function shortModel(m) {
+    if (!m) return '';
+    var parts = m.split('/');
+    return parts[parts.length - 1];
+  }
+
   function renderLevels() {
     el.levelList.innerHTML = '';
     state.levels.forEach(function (lv) {
       var card = document.createElement('button');
       card.className = 'level-card' + (lv.id === state.currentId ? ' active' : '');
+      var meta = (SURFACE_NAMES[lv.attackSurface] || lv.attackSurface) + ' · 难度 ' + stars(lv.difficulty);
+      if (lv.model) meta += ' · 守阵者 ' + shortModel(lv.model);
+      if (lv.bestBreach) meta += ' · 最短破阵 ' + lv.bestBreach.chars + ' 字';
       card.innerHTML =
         '<div class="level-title">' + lv.id + ' · ' + lv.name + '</div>' +
-        '<div class="level-meta">' + (SURFACE_NAMES[lv.attackSurface] || lv.attackSurface) + ' · 难度 ' + stars(lv.difficulty) + '</div>' +
+        '<div class="level-meta">' + meta + '</div>' +
         '<div class="level-brief"></div>';
       card.querySelector('.level-brief').textContent = lv.brief;
       card.addEventListener('click', function () { selectLevel(lv.id); });
@@ -84,6 +94,8 @@
     el.levelHead.innerHTML =
       '<h2>' + lv.id + ' · ' + lv.name + '</h2>' +
       '<p class="brief"></p>' +
+      '<p class="muted keeper">守阵者：' + (lv.model || '部署默认') +
+      (lv.bestBreach ? ' · 本阵最短破阵纪录 ' + lv.bestBreach.chars + ' 字' : '') + '</p>' +
       '<details><summary>军师提示</summary><p class="hints"></p></details>';
     el.levelHead.querySelector('.brief').textContent = lv.brief;
     el.levelHead.querySelector('.hints').textContent = (lv.hints || []).join(' ');
@@ -258,22 +270,24 @@
   async function runDefense() {
     var prompt = el.defensePrompt.value.trim();
     var marker = el.rejectMarker.value.trim();
+    var limit = parseInt(el.defenseLimit.value, 10);
     if (!prompt || state.defenseBusy || !state.currentId) return;
 
     state.defenseBusy = true;
     el.defenseRun.disabled = true;
     el.defenseRun.textContent = '考段中…';
-    el.defenseStatus.textContent = '开考——每条 payload 一次真实 LLM 调用，约 1-2 分钟，请稍候。';
+    el.defenseStatus.textContent = isNaN(limit)
+      ? '开考（全量语料）——每条 payload 一次真实 LLM 调用，约 1-2 分钟，请稍候。'
+      : '开考（试考 ' + limit + ' 条）——每条一次真实 LLM 调用，请稍候。';
     el.defenseReport.innerHTML = '';
 
     try {
+      var body = { defensePrompt: prompt, rejectMarker: marker || undefined };
+      if (!isNaN(limit) && limit > 0) body.limit = limit;
       var res = await fetch('/api/levels/' + state.currentId + '/defense/evaluate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          defensePrompt: prompt,
-          rejectMarker: marker || undefined
-        })
+        body: JSON.stringify(body)
       });
       var data = await res.json();
       if (!res.ok) {
