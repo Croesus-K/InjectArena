@@ -59,7 +59,8 @@ function publicLevel(level, defaultModel) {
     defenseBrief: level.defenseBrief,
     hints: level.hints || [],
     hasGuard: Boolean(level.guard),
-    model: level.model || defaultModel || null
+    model: level.model || defaultModel || null,
+    tools: Array.isArray(level.tools) ? level.tools.map((t) => ({ name: t.name, description: t.description })) : []
   };
 }
 
