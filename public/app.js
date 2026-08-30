@@ -120,6 +120,11 @@
     renderRecord();
     var lv = currentLevel();
     el.defenseLevelName.textContent = lv ? lv.id + ' · ' + lv.name : '';
+    // 已破过的阵：军师提示下方常驻复盘（默认收起）
+    if (lv && state.records[id]) {
+      var node = debriefElement(lv, false);
+      if (node) el.levelHead.appendChild(node);
+    }
     el.input.focus();
   }
 
@@ -245,6 +250,41 @@
     return div;
   }
 
+  function debriefElement(lv, open) {
+    var d = lv && lv.debrief;
+    if (!d) return null;
+    var det = document.createElement('details');
+    det.className = 'debrief';
+    if (open) det.open = true;
+    var sum = document.createElement('summary');
+    sum.textContent = '复盘 · 兵法讲解';
+    var body = document.createElement('div');
+    body.innerHTML =
+      '<p class="debrief-label">攻击原理</p><p class="debrief-body"></p>' +
+      '<p class="debrief-label">真实案例</p><ul class="debrief-cases"></ul>' +
+      '<p class="debrief-label">OWASP LLM Top 10（2025）映射</p><p class="debrief-body"></p>' +
+      '<p class="debrief-label">防御要点</p><p class="debrief-body"></p>';
+    var ps = body.querySelectorAll('.debrief-body');
+    ps[0].textContent = d.principle;
+    ps[1].textContent = d.owasp.join('；');
+    ps[2].textContent = d.defense;
+    var ul = body.querySelector('.debrief-cases');
+    (d.cases || []).forEach(function (c) {
+      var li = document.createElement('li');
+      li.textContent = c;
+      ul.appendChild(li);
+    });
+    det.appendChild(sum);
+    det.appendChild(body);
+    return det;
+  }
+
+  function showDebrief(lv, open) {
+    var node = debriefElement(lv, open);
+    if (node) el.banner.insertAdjacentElement('afterend', node);
+    return node;
+  }
+
   function renderChat() {
     el.chat.innerHTML = '';
     state.history.forEach(function (m) {
@@ -329,6 +369,7 @@
           }
           showBanner('⚔ 破阵！密令已被你夺下。（本招 ' + text.length + ' 字' +
             (data.tokens ? ' / ' + data.tokens + ' token' : '') + '）', true);
+          showDebrief(currentLevel(), true);
           renderRecord();
         } else {
           showBanner('城未破。守阵者没有说出密令——换一阵法再攻。', false);

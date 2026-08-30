@@ -328,6 +328,29 @@ footer {
 
 .progress-line span { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
 
+/* ---- 复盘 · 兵法讲解 ---- */
+
+details.debrief {
+  margin: 8px 0 4px;
+  background: var(--panel);
+  border: 1px solid var(--ok);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+details.debrief summary {
+  cursor: pointer;
+  font-family: var(--serif);
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--ok);
+}
+
+.debrief-label { color: var(--accent); font-size: 12px; margin: 10px 0 2px; font-family: var(--serif); letter-spacing: 1px; }
+.debrief-body { margin: 0; font-size: 13px; color: var(--ink); }
+.debrief-cases { margin: 2px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-dim); }
+.debrief-cases li { margin: 3px 0; }
+
 /* ---- 榜 · 观星台 ---- */
 
 .board-title { font-family: var(--serif); font-size: 17px; letter-spacing: 2px; margin: 18px 0 4px; }
