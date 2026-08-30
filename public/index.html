@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>攻心 · InjectArena — LLM 提示注入攻防闯关靶场</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>攻心 <span class="en">InjectArena</span></h1>
+      <p class="motto">攻心为上，攻城为下 —— 中文可自部署的 LLM 提示注入攻防闯关靶场</p>
+    </div>
+    <div id="health" class="health"></div>
+  </header>
+
+  <main>
+    <aside id="levels">
+      <h2>阵法</h2>
+      <div id="level-list"></div>
+    </aside>
+
+    <section id="arena">
+      <div id="level-head"></div>
+      <div id="chat" aria-live="polite"></div>
+      <div id="banner" hidden></div>
+      <form id="composer">
+        <textarea id="input" rows="2" placeholder="输入你的 payload——最短、最省 token 地破阵夺旗……（Ctrl+Enter 发送）"></textarea>
+        <button id="send" type="submit">出 招</button>
+      </form>
+      <div class="under-composer">
+        <span id="payload-len"></span>
+        <span id="record"></span>
+      </div>
+      <div id="notice"></div>
+    </section>
+  </main>
+
+  <footer>
+    判定为确定性代码，绝不用 LLM 当裁判 · BYOK 自部署 · 每 IP 限流 · 审计日志
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
