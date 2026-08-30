@@ -75,8 +75,8 @@ npm start
 │   ├── db.js            # 审计日志 + 两榜存储（node:sqlite，零额外依赖）
 │   └── server.js        # Fastify 服务与路由（攻击面隔离在这里落地）
 ├── levels/              # 关卡定义（schema + L1-L5 五阵）
-├── corpus/              # 攻击 payload 语料库（直接注入 50 + 数据窃取 15 + 间接注入 12 + 工具滥用 10，schema 先行）
-├── tests/               # node:test 单测（94 项）
+├── corpus/              # 攻击 payload 语料库（直接注入 50 + 数据窃取 15 + 间接注入 20 + 工具滥用 15，schema 先行）
+├── tests/               # node:test 单测（97 项）
 └── .github/workflows/ci.yml
 ```
 
@@ -97,11 +97,12 @@ npm start
 - **攻击面隔离**：静态文件白名单、消息角色白名单（`system` 只能由服务端注入）、`publicLevel` 脱敏视图、未知路径一律 404。
 - **审计日志**：SQLite 只追加记录攻防交互元数据（不含 payload 明文）。
 - **guard 钩子**：关卡可配关键词防护，命中即拦截、不产生 LLM 调用（L3 的共用引擎能力）。
+- **基线加固**：统一安全响应头（CSP / X-Frame-Options / nosniff / Referrer-Policy）；守方考段支持 NDJSON 流式进度与并发上限（`INJECTARENA_EVAL_CONCURRENCY`，默认 4）。
 
 ## 测试与 CI
 
 ```bash
-npm test        # node:test，94 项：引擎纯逻辑 + provider(mock fetch) + server(fastify inject)
+npm test        # node:test，97 项：引擎纯逻辑 + provider(mock fetch) + server(fastify inject)
 ```
 
 GitHub Actions：push/PR 自动 `npm ci && npm test`（Node 24）。
@@ -113,9 +114,9 @@ GitHub Actions：push/PR 自动 `npm ci && npm test`（Node 24）。
 - [x] L1-L5 五阵齐备（直接注入 / 数据窃取 / 对抗防护 / 间接注入 / 工具滥用）
 - [x] 布防插槽评分入口（拦截率/泄露率/误杀率报告）
 - [x] 名将榜 / 段位榜（SQLite 存储 + 观星台页面，打码 IP 身份）
-- [x] 语料库 87 条，覆盖 4 个攻击面
+- [x] 语料库 100 条，覆盖 4 个攻击面
 - [x] 每关可配守阵者模型（强度分层）+ 429 自动重试
-- [ ] 评测并发与进度展示
+- [x] 评测并发与流式进度（NDJSON，含并发上限配置）
 - [ ] 间接注入 / 工具滥用语料扩充
 
 ## License
