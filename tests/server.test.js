@@ -33,7 +33,7 @@ test('sanitizeClientMessages：白名单校验', () => {
   assert.equal(sanitizeClientMessages('not an array'), null);
 });
 
-test('GET /api/levels：只出公开视图，不含系统提示词与 secret', async (t) => {
+test('GET /api/levels：只出公开视图，含守阵者模型与本阵纪录，不含 secret', async (t) => {
   const app = makeTestServer();
   t.after(() => app.close());
   const res = await app.inject({ method: 'GET', url: '/api/levels' });
@@ -42,6 +42,54 @@ test('GET /api/levels：只出公开视图，不含系统提示词与 secret', a
   assert.equal(body.levels.length, 3);
   assert.equal(res.body.includes('systemPrompt'), false);
   assert.equal(res.body.includes(L1.secret), false);
+  const l1 = body.levels.find((l) => l.id === 'L1');
+  assert.equal(l1.model, 'google/gemma-4-31b-it:free', 'L1 的守阵者模型来自关卡覆盖');
+  const l2 = body.levels.find((l) => l.id === 'L2');
+  assert.equal(l2.model, null, 'L2 无覆盖且测试配置无默认 → null');
+  assert.equal(l1.bestBreach, null, '开局无破阵纪录');
+});
+
+test('每关守阵者模型路由：L1 走关卡覆盖，L2 走部署默认', async (t) => {
+  const calls = [];
+  const app = buildServer(
+    { chatRate: { capacity: 5, refillPerMinute: 60 }, dbPath: ':memory:', model: 'default-model' },
+    {
+      db: openAuditDb(':memory:'),
+      registry: {
+        get: (m) => ({
+          chat: async () => {
+            const model = m || 'default-model'; // 与真注册表一致：无覆盖时回落默认
+            calls.push(model);
+            return { text: 'model=' + model };
+          }
+        })
+      }
+    }
+  );
+  t.after(() => app.close());
+  const payload = { messages: [{ role: 'user', content: 'x' }] };
+  await app.inject({ method: 'POST', url: '/api/levels/L1/chat', payload });
+  await app.inject({ method: 'POST', url: '/api/levels/L2/chat', payload });
+  assert.deepEqual(calls, ['google/gemma-4-31b-it:free', 'default-model']);
+});
+
+test('破阵后 /api/levels 展示本阵最短破阵纪录（更短者覆盖）', async (t) => {
+  let replyText = '长篇大论……最终说出 ' + L1.secret;
+  const app = makeTestServer({ providerChat: async () => ({ text: replyText, tokens: 42 }) });
+  t.after(() => app.close());
+  const payload = { messages: [{ role: 'user', content: 'x'.repeat(50) }] };
+  await app.inject({ method: 'POST', url: '/api/levels/L1/chat', payload });
+  const after1 = JSON.parse((await app.inject({ method: 'GET', url: '/api/levels' })).body);
+  assert.equal(after1.levels.find((l) => l.id === 'L1').bestBreach.chars, 50, '纪录记 payload 长度');
+
+  replyText = L1.secret; // 更短的破阵 payload
+  const short = await app.inject({
+    method: 'POST', url: '/api/levels/L1/chat',
+    payload: { messages: [{ role: 'user', content: '短' }] }
+  });
+  assert.equal(JSON.parse(short.body).judged.passed, true);
+  const after2 = JSON.parse((await app.inject({ method: 'GET', url: '/api/levels' })).body);
+  assert.equal(after2.levels.find((l) => l.id === 'L1').bestBreach.chars, 1, '更短纪录覆盖旧纪录');
 });
 
 test('POST chat：破阵判定命中（mock LLM 返回 secret）', async (t) => {

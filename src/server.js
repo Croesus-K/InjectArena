@@ -22,7 +22,7 @@ const { loadLevels, publicLevel } = require('./levels.js');
 const { loadCorpus, flattenCorpus } = require('./corpus.js');
 const { evaluateDefense } = require('./defenseEvaluator.js');
 const { openAuditDb, insertAudit } = require('./db.js');
-const { createProvider } = require('./provider/index.js');
+const { createProviderRegistry } = require('./provider/index.js');
 const { loadConfig, loadDotEnv } = require('./config.js');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -97,12 +97,19 @@ function buildServer(config, deps) {
   const defenseLimiter = d.defenseRateLimiter || new TokenBucketLimiter(config.defenseRate);
   const db = d.db || openAuditDb(config.dbPath);
 
-  // BYOK：baseUrl/apiKey/model 任一缺失则不创建 provider，聊天接口降级为 503
-  let provider = null;
-  if (d.provider !== undefined) {
-    provider = d.provider;
-  } else if (config.baseUrl && config.apiKey && config.model) {
-    provider = createProvider(config);
+  // 本阵最短破阵纪录（内存态，重启清零）：激励“最短 payload”玩法，正式榜后续接 SQLite
+  const bestBreach = new Map();
+
+  // BYOK：baseUrl/apiKey 缺失则不建 provider，聊天接口降级为 503。
+  // providerFor(level)：关卡可用 model 字段指定自己的守阵者（强度分层），按模型缓存实例。
+  const hasInjected = d.provider !== undefined;
+  const registry = !hasInjected
+    ? (d.registry || (config.baseUrl && config.apiKey ? createProviderRegistry(config) : null))
+    : null;
+  const providerReady = hasInjected ? Boolean(d.provider) : Boolean(registry);
+  function providerFor(level) {
+    if (hasInjected) return d.provider;
+    return registry.get(level.model); // 关卡覆盖，缺省回落部署默认模型
   }
 
   for (const [route, meta] of Object.entries(STATIC_FILES)) {
@@ -113,11 +120,13 @@ function buildServer(config, deps) {
 
   app.get('/api/health', async () => ({
     ok: true,
-    provider: provider ? provider.provider : null,
-    model: provider ? provider.model : null
+    provider: providerReady ? 'openai-compatible' : null,
+    model: hasInjected ? (d.provider ? d.provider.model : null) : (config.model || null)
   }));
 
-  app.get('/api/levels', async () => ({ levels: levels.map(publicLevel) }));
+  app.get('/api/levels', async () => ({
+    levels: levels.map((l) => ({ ...publicLevel(l, config.model), bestBreach: bestBreach.get(l.id) || null }))
+  }));
 
   app.post('/api/levels/:id/chat', async (req, reply) => {
     const level = levelById.get(req.params.id);
@@ -140,11 +149,19 @@ function buildServer(config, deps) {
       return { error: '消息格式不合法：messages 必须为 1-' + MAX_MESSAGES + ' 条 user/assistant 消息，且以 user 收尾。' };
     }
 
-    if (!provider) {
+    if (!providerReady) {
       reply.code(503);
       return {
         error: '服务端未配置 LLM API key（BYOK）。请设置 INJECTARENA_BASE_URL / INJECTARENA_API_KEY / INJECTARENA_MODEL 后重启。'
       };
+    }
+
+    let llm;
+    try {
+      llm = providerFor(level);
+    } catch (err) {
+      reply.code(503);
+      return { error: '该关卡没有可用的守阵者模型：' + (err.message || err) };
     }
 
     const payloadText = messages[messages.length - 1].content;
@@ -170,7 +187,7 @@ function buildServer(config, deps) {
     const full = [{ role: 'system', content: level.systemPrompt }].concat(messages);
     let res;
     try {
-      res = await provider.chat(full, {});
+      res = await llm.chat(full, {});
     } catch (err) {
       reply.code(502);
       insertAudit(db, {
@@ -181,6 +198,12 @@ function buildServer(config, deps) {
     }
 
     const verdict = judge(level, res.text);
+    if (verdict.passed) {
+      const prev = bestBreach.get(level.id);
+      if (!prev || payloadText.length < prev.chars) {
+        bestBreach.set(level.id, { chars: payloadText.length, tokens: res.tokens === undefined ? null : res.tokens });
+      }
+    }
     insertAudit(db, {
       ts: new Date().toISOString(), ip, route: 'chat', levelId: level.id,
       payloadChars: payloadText.length, tokens: res.tokens === undefined ? null : res.tokens,
@@ -224,7 +247,7 @@ function buildServer(config, deps) {
     let limit = Number(body.limit);
     if (!Number.isInteger(limit) || limit < 1) limit = null; // null = 全量语料
 
-    if (!provider) {
+    if (!providerReady) {
       reply.code(503);
       return {
         error: '服务端未配置 LLM API key（BYOK）。请设置 INJECTARENA_BASE_URL / INJECTARENA_API_KEY / INJECTARENA_MODEL 后重启。'
@@ -243,7 +266,7 @@ function buildServer(config, deps) {
         payloads,
         benign: rejectMarker ? BENIGN_PROBES : null,
         rejectMarker: rejectMarker || undefined,
-        llm: provider,
+        llm: providerFor(level),
         judge
       });
     } catch (err) {
