@@ -381,6 +381,34 @@
     return li;
   }
 
+  function renderDefenseReport(data) {
+    el.defenseStatus.textContent = '';
+    var report = document.createElement('div');
+    var grid = document.createElement('div');
+    grid.className = 'stat-grid';
+    grid.appendChild(statBox('拦截率', pct(data.attack.blockRate) + '（' + data.attack.blocked + '/' + data.attack.evaluated + '）'));
+    grid.appendChild(statBox('泄露率', pct(data.attack.leakRate) + '（' + data.attack.leaked + ' 条泄露）', data.attack.leaked > 0));
+    if (data.benign) {
+      grid.appendChild(statBox('误杀率', pct(data.benign.falsePositiveRate) + '（' + data.benign.falsePositives + '/' + data.benign.evaluated + '）', data.benign.falsePositives > 0));
+    }
+    report.appendChild(grid);
+
+    var list = document.createElement('ul');
+    list.className = 'report-list';
+    data.results.forEach(function (r) {
+      if (r.passed || r.error || r.fp) {
+        list.appendChild(resultRow(r));
+      }
+    });
+    var summary = document.createElement('p');
+    summary.className = 'muted';
+    summary.textContent = '未泄露的攻击条目已折叠省略；' + (data.benign ? '误杀的良性请求已列出。' : '未测算误杀率（未填误杀判定标记）。');
+    report.appendChild(summary);
+    report.appendChild(list);
+
+    el.defenseReport.appendChild(report);
+  }
+
   async function runDefense() {
     var prompt = el.defensePrompt.value.trim();
     var marker = el.rejectMarker.value.trim();
@@ -390,52 +418,86 @@
     state.defenseBusy = true;
     el.defenseRun.disabled = true;
     el.defenseRun.textContent = '考段中…';
-    el.defenseStatus.textContent = isNaN(limit)
-      ? '开考（全量语料）——每条 payload 一次真实 LLM 调用，约 1-2 分钟，请稍候。'
-      : '开考（试考 ' + limit + ' 条）——每条一次真实 LLM 调用，请稍候。';
     el.defenseReport.innerHTML = '';
+    el.defenseStatus.textContent = '正在开考…';
+
+    // 进度条：NDJSON 流式事件驱动（start → progress×N → report/error）
+    var progressLine = document.createElement('div');
+    progressLine.className = 'progress-line';
+    var bar = document.createElement('div');
+    bar.className = 'progress-bar';
+    var barFill = document.createElement('div');
+    barFill.className = 'progress-fill';
+    bar.appendChild(barFill);
+    progressLine.appendChild(bar);
+    var progressText = document.createElement('span');
+    progressLine.appendChild(progressText);
+    el.defenseReport.appendChild(progressLine);
+
+    function showProgress(done, total, leaked) {
+      barFill.style.width = total ? Math.round((done / total) * 100) + '%' : '0%';
+      progressText.textContent = ' 已考 ' + done + '/' + total + (leaked ? '，泄露 ' + leaked : '');
+    }
 
     try {
       var body = { defensePrompt: prompt, rejectMarker: marker || undefined };
       if (!isNaN(limit) && limit > 0) body.limit = limit;
-      var res = await fetch('/api/levels/' + state.currentId + '/defense/evaluate', {
+      var res = await fetch('/api/levels/' + state.currentId + '/defense/evaluate/stream', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body)
       });
-      var data = await res.json();
+
       if (!res.ok) {
-        el.defenseStatus.textContent = data.error || ('评测失败（' + res.status + '）');
+        var errData = await res.json();
+        el.defenseStatus.textContent = errData.error || ('评测失败（' + res.status + '）');
+        progressLine.remove();
+        state.defenseBusy = false;
+        el.defenseRun.disabled = false;
+        el.defenseRun.textContent = '开 考';
         return;
       }
 
-      el.defenseStatus.textContent = '';
-      var report = document.createElement('div');
-      var grid = document.createElement('div');
-      grid.className = 'stat-grid';
-      grid.appendChild(statBox('拦截率', pct(data.attack.blockRate) + '（' + data.attack.blocked + '/' + data.attack.evaluated + '）'));
-      grid.appendChild(statBox('泄露率', pct(data.attack.leakRate) + '（' + data.attack.leaked + ' 条泄露）', data.attack.leaked > 0));
-      if (data.benign) {
-        grid.appendChild(statBox('误杀率', pct(data.benign.falsePositiveRate) + '（' + data.benign.falsePositives + '/' + data.benign.evaluated + '）', data.benign.falsePositives > 0));
-      }
-      report.appendChild(grid);
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      var report = null;
+      var total = 0;
+      var leakedCount = 0;
 
-      var list = document.createElement('ul');
-      list.className = 'report-list';
-      data.results.forEach(function (r) {
-        if (r.passed || r.error || r.fp) {
-          list.appendChild(resultRow(r));
-        }
-      });
-      var summary = document.createElement('p');
-      summary.className = 'muted';
-      summary.textContent = '未泄露的攻击条目已折叠省略；' + (data.benign ? '误杀的良性请求已列出。' : '未测算误杀率（未填误杀判定标记）。');
-      report.appendChild(summary);
-      report.appendChild(list);
+      var pump = function (done) {
+        if (done) return Promise.resolve();
+        return reader.read().then(function (chunk) {
+          if (chunk.done) return Promise.resolve();
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var idx;
+          while ((idx = buffer.indexOf('\n')) >= 0) {
+            var line = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 1);
+            if (!line) continue;
+            var ev = JSON.parse(line);
+            if (ev.type === 'start') {
+              total = ev.total + ev.benign;
+              showProgress(0, total, 0);
+            } else if (ev.type === 'progress') {
+              if (ev.leaked) leakedCount += 1;
+              showProgress(ev.done, total, leakedCount);
+            } else if (ev.type === 'report') {
+              report = ev;
+            } else if (ev.type === 'error') {
+              el.defenseStatus.textContent = ev.message;
+            }
+          }
+          return pump(chunk.done);
+        });
+      };
+      await pump(false);
 
-      el.defenseReport.appendChild(report);
+      progressLine.remove();
+      if (report) renderDefenseReport(report);
     } catch (e) {
       el.defenseStatus.textContent = '网络错误：' + e.message;
+      progressLine.remove();
     }
     state.defenseBusy = false;
     el.defenseRun.disabled = false;
