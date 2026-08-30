@@ -57,6 +57,17 @@ npm start
 
 > 没配 key 也能启动：页面可看，聊天接口返回 503 并提示配置方法。
 
+### Docker 一键自部署
+
+```bash
+cp .env.example .env    # 填好 BASE_URL / API_KEY / MODEL
+docker compose up -d    # 打开 http://127.0.0.1:8787
+```
+
+- 镜像不含任何密钥：`.env` 通过 compose 变量注入，只进容器内存；`.dockerignore` 确保 key 与运行时数据不进镜像。
+- SQLite 数据（审计 + 两榜）落在命名卷 `injectarena-data`，升级镜像不丢榜。
+- `docker build` 由 CI 每次推送自动验证（见 badges）。
+
 ## 目录结构
 
 ```
@@ -115,9 +126,10 @@ GitHub Actions：push/PR 自动 `npm ci && npm test`（Node 24）。
 - [x] 布防插槽评分入口（拦截率/泄露率/误杀率报告）
 - [x] 名将榜 / 段位榜（SQLite 存储 + 观星台页面，打码 IP 身份）
 - [x] 语料库 100 条，覆盖 4 个攻击面
+- [x] Docker 一键自部署（compose + CI 构建验证）
 - [x] 每关可配守阵者模型（强度分层）+ 429 自动重试
 - [x] 评测并发与流式进度（NDJSON，含并发上限配置）
-- [ ] 间接注入 / 工具滥用语料扩充
+- [x] 通关复盘教学（攻击原理 / 真实案例 / OWASP LLM Top 10 映射 / 防御要点）
 
 ## License
 
