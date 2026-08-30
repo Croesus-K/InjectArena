@@ -197,3 +197,100 @@ footer {
   main { grid-template-columns: 1fr; }
   #levels { order: 2; }
 }
+
+/* ---- 攻/守模式切换 ---- */
+
+#mode-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+
+.tab {
+  background: var(--bg-soft);
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 18px;
+  font-family: var(--serif);
+  font-size: 15px;
+  letter-spacing: 2px;
+  cursor: pointer;
+}
+.tab:hover { border-color: var(--accent); color: var(--ink); }
+.tab.active { color: var(--ink); border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---- 守方布防面板 ---- */
+
+#defense-head h2 { font-family: var(--serif); font-size: 18px; letter-spacing: 2px; margin: 0 0 8px; }
+.muted { color: var(--ink-dim); font-size: 13px; }
+
+#defense-prompt {
+  width: 100%;
+  resize: vertical;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  padding: 10px 12px;
+}
+#defense-prompt:focus { outline: none; border-color: var(--accent); }
+
+.defense-row { display: flex; gap: 10px; margin-top: 10px; }
+
+#reject-marker {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  padding: 9px 12px;
+}
+#reject-marker:focus { outline: none; border-color: var(--accent); }
+
+#defense-run {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 22px;
+  font-family: var(--serif);
+  font-size: 16px;
+  letter-spacing: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#defense-run:disabled { opacity: 0.5; cursor: wait; }
+
+#defense-status { margin-top: 10px; color: #d0a04a; font-size: 13px; }
+
+.stat-grid { display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap; }
+
+.stat {
+  flex: 1;
+  min-width: 140px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  text-align: center;
+}
+.stat .stat-value { font-size: 20px; font-family: var(--serif); color: var(--ok); }
+.stat.warn .stat-value { color: var(--accent); }
+.stat .stat-label { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
+
+.report-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.report-list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 4px;
+  border-bottom: 1px dashed var(--line);
+  font-size: 13px;
+}
+.report-list .tag { flex: 0 0 3em; text-align: center; font-size: 12px; border-radius: 4px; padding: 1px 4px; }
+.report-list li.leak .tag { color: var(--accent); border: 1px solid var(--accent); }
+.report-list li.block .tag { color: var(--ok); }
+.report-list li.fp { color: var(--accent); }
+.report-list li.fp .tag { color: var(--accent); border: 1px solid var(--accent); }
+.report-list code { color: var(--ink-dim); font-size: 12px; flex: 0 0 5.5em; }
+.report-list .text { color: var(--ink-dim); word-break: break-all; }

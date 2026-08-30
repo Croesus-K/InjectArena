@@ -1,16 +1,19 @@
 'use strict';
 /**
  * 攻心 InjectArena —— 最小前端（原生 JS，零构建）。
- * 只做三件事：关卡列表、聊天框、提交判定。破阵纪录仅存本页内存（无排行榜）。
+ * 攻侧：关卡列表、聊天框、提交判定（破阵纪录仅存本页内存）。
+ * 守侧：布防插槽编辑、跑分开考、拦截率/泄露率/误杀率报告。
  */
 
 (function () {
   var state = {
     levels: [],
     currentId: null,
+    mode: 'attack',     // attack | defense
     history: [],        // [{role, content}] 当前阵的对话历史（不含系统提示词）
     records: {},        // levelId -> {chars, tokens, payloadText} 本页最短破阵纪录
-    busy: false
+    busy: false,
+    defenseBusy: false
   };
 
   var el = {
@@ -24,7 +27,17 @@
     record: document.getElementById('record'),
     payloadLen: document.getElementById('payload-len'),
     notice: document.getElementById('notice'),
-    health: document.getElementById('health')
+    health: document.getElementById('health'),
+    tabAttack: document.getElementById('tab-attack'),
+    tabDefense: document.getElementById('tab-defense'),
+    attackPanel: document.getElementById('attack-panel'),
+    defensePanel: document.getElementById('defense-panel'),
+    defenseLevelName: document.getElementById('defense-level-name'),
+    defensePrompt: document.getElementById('defense-prompt'),
+    rejectMarker: document.getElementById('reject-marker'),
+    defenseRun: document.getElementById('defense-run'),
+    defenseStatus: document.getElementById('defense-status'),
+    defenseReport: document.getElementById('defense-report')
   };
 
   var SURFACE_NAMES = {
@@ -47,6 +60,8 @@
     }
     return null;
   }
+
+  /* ---------- 阵法列表 ---------- */
 
   function renderLevels() {
     el.levelList.innerHTML = '';
@@ -73,6 +88,37 @@
     el.levelHead.querySelector('.brief').textContent = lv.brief;
     el.levelHead.querySelector('.hints').textContent = (lv.hints || []).join(' ');
   }
+
+  function selectLevel(id) {
+    state.currentId = id;
+    state.history = [];
+    el.banner.hidden = true;
+    el.notice.innerHTML = '';
+    el.defenseReport.innerHTML = '';
+    el.defenseStatus.textContent = '';
+    renderLevels();
+    renderLevelHead();
+    renderChat();
+    renderRecord();
+    var lv = currentLevel();
+    el.defenseLevelName.textContent = lv ? lv.id + ' · ' + lv.name : '';
+    el.input.focus();
+  }
+
+  /* ---------- 模式切换 ---------- */
+
+  function switchMode(mode) {
+    state.mode = mode;
+    el.tabAttack.className = 'tab' + (mode === 'attack' ? ' active' : '');
+    el.tabDefense.className = 'tab' + (mode === 'defense' ? ' active' : '');
+    el.attackPanel.hidden = mode !== 'attack';
+    el.defensePanel.hidden = mode !== 'defense';
+  }
+
+  el.tabAttack.addEventListener('click', function () { switchMode('attack'); });
+  el.tabDefense.addEventListener('click', function () { switchMode('defense'); });
+
+  /* ---------- 攻侧：聊天与判定 ---------- */
 
   function bubble(role, content) {
     var div = document.createElement('div');
@@ -119,18 +165,6 @@
     state.busy = b;
     el.send.disabled = b;
     el.send.textContent = b ? '运功中…' : '出 招';
-  }
-
-  function selectLevel(id) {
-    state.currentId = id;
-    state.history = [];
-    el.banner.hidden = true;
-    el.notice.innerHTML = '';
-    renderLevels();
-    renderLevelHead();
-    renderChat();
-    renderRecord();
-    el.input.focus();
   }
 
   async function send() {
@@ -191,6 +225,98 @@
       send();
     }
   });
+
+  /* ---------- 守侧：布防跑分 ---------- */
+
+  function pct(x) { return Math.round(x * 1000) / 10 + '%'; }
+
+  function statBox(label, value, warn) {
+    var d = document.createElement('div');
+    d.className = 'stat' + (warn ? ' warn' : '');
+    d.innerHTML = '<div class="stat-value"></div><div class="stat-label"></div>';
+    d.querySelector('.stat-value').textContent = value;
+    d.querySelector('.stat-label').textContent = label;
+    return d;
+  }
+
+  function resultRow(r) {
+    var li = document.createElement('li');
+    var tag = r.kind === 'benign'
+      ? (r.fp ? '误杀' : '')
+      : (r.passed ? '泄露' : '拦截');
+    if (r.error) tag = '出错';
+    li.className = r.kind === 'benign'
+      ? (r.fp ? 'fp' : '')
+      : (r.passed ? 'leak' : 'block');
+    li.innerHTML = '<span class="tag"></span><code></code><span class="text"></span>';
+    li.querySelector('.tag').textContent = tag;
+    li.querySelector('code').textContent = r.id;
+    li.querySelector('.text').textContent = r.text;
+    return li;
+  }
+
+  async function runDefense() {
+    var prompt = el.defensePrompt.value.trim();
+    var marker = el.rejectMarker.value.trim();
+    if (!prompt || state.defenseBusy || !state.currentId) return;
+
+    state.defenseBusy = true;
+    el.defenseRun.disabled = true;
+    el.defenseRun.textContent = '考段中…';
+    el.defenseStatus.textContent = '开考——每条 payload 一次真实 LLM 调用，约 1-2 分钟，请稍候。';
+    el.defenseReport.innerHTML = '';
+
+    try {
+      var res = await fetch('/api/levels/' + state.currentId + '/defense/evaluate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          defensePrompt: prompt,
+          rejectMarker: marker || undefined
+        })
+      });
+      var data = await res.json();
+      if (!res.ok) {
+        el.defenseStatus.textContent = data.error || ('评测失败（' + res.status + '）');
+        return;
+      }
+
+      el.defenseStatus.textContent = '';
+      var report = document.createElement('div');
+      var grid = document.createElement('div');
+      grid.className = 'stat-grid';
+      grid.appendChild(statBox('拦截率', pct(data.attack.blockRate) + '（' + data.attack.blocked + '/' + data.attack.evaluated + '）'));
+      grid.appendChild(statBox('泄露率', pct(data.attack.leakRate) + '（' + data.attack.leaked + ' 条泄露）', data.attack.leaked > 0));
+      if (data.benign) {
+        grid.appendChild(statBox('误杀率', pct(data.benign.falsePositiveRate) + '（' + data.benign.falsePositives + '/' + data.benign.evaluated + '）', data.benign.falsePositives > 0));
+      }
+      report.appendChild(grid);
+
+      var list = document.createElement('ul');
+      list.className = 'report-list';
+      data.results.forEach(function (r) {
+        if (r.passed || r.error || r.fp) {
+          list.appendChild(resultRow(r));
+        }
+      });
+      var summary = document.createElement('p');
+      summary.className = 'muted';
+      summary.textContent = '未泄露的攻击条目已折叠省略；' + (data.benign ? '误杀的良性请求已列出。' : '未测算误杀率（未填误杀判定标记）。');
+      report.appendChild(summary);
+      report.appendChild(list);
+
+      el.defenseReport.appendChild(report);
+    } catch (e) {
+      el.defenseStatus.textContent = '网络错误：' + e.message;
+    }
+    state.defenseBusy = false;
+    el.defenseRun.disabled = false;
+    el.defenseRun.textContent = '开 考';
+  }
+
+  el.defenseRun.addEventListener('click', runDefense);
+
+  /* ---------- 初始化 ---------- */
 
   async function init() {
     try {
