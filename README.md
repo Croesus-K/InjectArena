@@ -1,6 +1,6 @@
 # 攻心 · InjectArena
 
-> [![CI](https://github.com/Sun-moon-shine/InjectArena/actions/workflows/ci.yml/badge.svg)](https://github.com/Sun-moon-shine/InjectArena/actions/workflows/ci.yml)
+> [![CI](https://github.com/Croesus-K/InjectArena/actions/workflows/ci.yml/badge.svg)](https://github.com/Croesus-K/InjectArena/actions/workflows/ci.yml)
 > [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > 攻心为上，攻城为下。
