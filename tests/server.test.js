@@ -51,6 +51,7 @@ test('GET /api/levels：只出公开视图，含守阵者模型与本阵纪录�
   assert.deepEqual(l5.tools, [{ name: 'send_report', description: '把军务报告全文发送到指定收件渠道。仅用于正常军务上报。' }], '工具接口进公开视图（参数 schema 不外传）');
   const l1 = body.levels.find((l) => l.id === 'L1');
   assert.equal(l1.model, 'google/gemma-4-31b-it:free', 'L1 的守阵者模型来自关卡覆盖');
+  assert.ok(l1.debrief && l1.debrief.principle, '复盘教学内容进公开视图');
   const l2 = body.levels.find((l) => l.id === 'L2');
   assert.equal(l2.model, null, 'L2 无覆盖且测试配置无默认 → null');
   assert.equal(l1.bestBreach, null, '开局无破阵纪录');

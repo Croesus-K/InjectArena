@@ -60,7 +60,9 @@ function publicLevel(level, defaultModel) {
     hints: level.hints || [],
     hasGuard: Boolean(level.guard),
     model: level.model || defaultModel || null,
-    tools: Array.isArray(level.tools) ? level.tools.map((t) => ({ name: t.name, description: t.description })) : []
+    tools: Array.isArray(level.tools) ? level.tools.map((t) => ({ name: t.name, description: t.description })) : [],
+    // 复盘教学（公开内容）：破阵后的攻击原理/真实案例/OWASP 映射/防御要点
+    debrief: level.debrief || null
   };
 }
 

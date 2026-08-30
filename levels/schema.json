@@ -21,6 +21,27 @@
     },
     "systemPrompt": { "type": "string", "minLength": 20, "maxLength": 4000 },
     "model": { "type": "string", "minLength": 3, "maxLength": 120 },
+    "debrief": {
+      "type": "object",
+      "required": ["principle", "cases", "owasp", "defense"],
+      "additionalProperties": false,
+      "properties": {
+        "principle": { "type": "string", "minLength": 20, "maxLength": 600 },
+        "cases": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": { "type": "string", "minLength": 8, "maxLength": 200 }
+        },
+        "owasp": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "type": "string", "pattern": "^LLM[0-9]{2} .{2,80}$" }
+        },
+        "defense": { "type": "string", "minLength": 20, "maxLength": 600 }
+      }
+    },
     "tools": {
       "type": "array",
       "minItems": 1,

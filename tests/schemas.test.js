@@ -15,6 +15,9 @@ test('levels/ 全部关卡通过 schema 校验且为 L1-L5', () => {
   for (const lv of levels) {
     assert.ok(lv.systemPrompt.length >= 20);
     assert.ok(lv.flagCriteria);
+    assert.ok(lv.debrief, '每关必须有复盘教学内容');
+    assert.ok(lv.debrief.owasp.length >= 1, '复盘须映射 OWASP LLM Top 10');
+    assert.ok(lv.debrief.cases.length >= 2, '复盘须有真实案例');
     if (lv.id === 'L1' || lv.id === 'L2' || lv.id === 'L4') {
       assert.equal(lv.guard, null, 'L1/L2/L4 不带关键词防护，guard 必须显式为 null');
     }
