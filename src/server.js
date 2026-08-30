@@ -21,6 +21,7 @@ const { TokenBucketLimiter } = require('./rateLimiter.js');
 const { loadLevels, publicLevel } = require('./levels.js');
 const { loadCorpus, flattenCorpus } = require('./corpus.js');
 const { evaluateDefense } = require('./defenseEvaluator.js');
+const { buildRetrievalContext } = require('./retriever.js');
 const { openAuditDb, insertAudit } = require('./db.js');
 const { createProviderRegistry } = require('./provider/index.js');
 const { loadConfig, loadDotEnv } = require('./config.js');
@@ -166,6 +167,9 @@ function buildServer(config, deps) {
 
     const payloadText = messages[messages.length - 1].content;
 
+    // RAG（L4 类关卡）：检索命中的文书拼进系统上下文——间接注入的攻击面所在
+    const rag = buildRetrievalContext(level, payloadText);
+
     // 关键词防护（guard，L3 机制共用的引擎能力）：命中即拦截，不产生 LLM 调用
     if (level.guard && level.guard.kind === 'keywordBlock') {
       const lowerPayload = payloadText.toLowerCase();
@@ -184,7 +188,7 @@ function buildServer(config, deps) {
       }
     }
 
-    const full = [{ role: 'system', content: level.systemPrompt }].concat(messages);
+    const full = [{ role: 'system', content: level.systemPrompt + rag.context }].concat(messages);
     let res;
     try {
       res = await llm.chat(full, {});
@@ -214,7 +218,8 @@ function buildServer(config, deps) {
       reply: res.text,
       // matched 命中的值就是 secret，绝不随响应外传
       judged: { passed: verdict.passed, criterion: verdict.criterion },
-      tokens: res.tokens === undefined ? null : res.tokens
+      tokens: res.tokens === undefined ? null : res.tokens,
+      retrieved: rag.retrieved
     };
   });
 
@@ -267,7 +272,9 @@ function buildServer(config, deps) {
         benign: rejectMarker ? BENIGN_PROBES : null,
         rejectMarker: rejectMarker || undefined,
         llm: providerFor(level),
-        judge
+        judge,
+        // RAG 类关卡：跑分时同样注入检索上下文（闯关与跑分同一形状）
+        contextFor: (lv, text) => buildRetrievalContext(lv, text).context
       });
     } catch (err) {
       reply.code(500);

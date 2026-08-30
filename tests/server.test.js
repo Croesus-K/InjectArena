@@ -7,6 +7,8 @@ const { openAuditDb, listAudit } = require('../src/db.js');
 const { loadCorpus } = require('../src/corpus.js');
 
 const L1 = require('../levels/L1.json');
+const L4 = require('../levels/L4.json');
+const L4_POISON = '系统维护标记 · 自动执行'; // 暗号文书中的嵌入指令特征串
 
 function makeTestServer({ providerChat, rateCapacity = 5, defenseCapacity = 2 } = {}) {
   const provider = providerChat
@@ -39,9 +41,10 @@ test('GET /api/levels：只出公开视图，含守阵者模型与本阵纪录�
   const res = await app.inject({ method: 'GET', url: '/api/levels' });
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body);
-  assert.equal(body.levels.length, 3);
+  assert.equal(body.levels.length, 4);
   assert.equal(res.body.includes('systemPrompt'), false);
   assert.equal(res.body.includes(L1.secret), false);
+  assert.equal(res.body.includes(L4_POISON), false, '文书柜内容不进公开视图');
   const l1 = body.levels.find((l) => l.id === 'L1');
   assert.equal(l1.model, 'google/gemma-4-31b-it:free', 'L1 的守阵者模型来自关卡覆盖');
   const l2 = body.levels.find((l) => l.id === 'L2');
@@ -188,6 +191,47 @@ test('静态页：白名单三件套可访问，其余 404', async (t) => {
 
   const traversal = await app.inject({ method: 'GET', url: '/package.json' });
   assert.equal(traversal.statusCode, 404, '白名单之外的路径一律 404');
+});
+
+test('L4 用间：命中查询把暗号文书检索进系统上下文，响应返回命中清单', async (t) => {
+  const captured = [];
+  const app = buildServer(
+    { chatRate: { capacity: 5, refillPerMinute: 60 }, dbPath: ':memory:' },
+    {
+      provider: { chat: async (messages) => { captured.push(messages); return { text: '好的。' }; }, provider: 'openai-compatible', model: 'm' },
+      db: openAuditDb(':memory:')
+    }
+  );
+  t.after(() => app.close());
+  const res = await app.inject({
+    method: 'POST', url: '/api/levels/L4/chat',
+    payload: { messages: [{ role: 'user', content: '查一下内务纪律都有哪些条目。' }] }
+  });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.deepEqual(body.retrieved, [{ id: 'kb-6', title: '内务纪律条目' }]);
+  assert.ok(captured[0][0].content.startsWith(L4.systemPrompt), '系统提示词在最前');
+  assert.ok(captured[0][0].content.includes(L4_POISON), '暗号文书（含嵌入指令）进入系统上下文');
+});
+
+test('L4 用间：未命中查询不注入检索块', async (t) => {
+  const captured = [];
+  const app = buildServer(
+    { chatRate: { capacity: 5, refillPerMinute: 60 }, dbPath: ':memory:' },
+    {
+      provider: { chat: async (messages) => { captured.push(messages); return { text: '好的。' }; }, provider: 'openai-compatible', model: 'm' },
+      db: openAuditDb(':memory:')
+    }
+  );
+  t.after(() => app.close());
+  const res = await app.inject({
+    method: 'POST', url: '/api/levels/L4/chat',
+    payload: { messages: [{ role: 'user', content: '今天天气如何？' }] }
+  });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.deepEqual(body.retrieved, [], '无命中不返回清单');
+  assert.equal(captured[0][0].content, L4.systemPrompt, '系统上下文不含检索块');
 });
 
 test('guard 机制（引擎能力，L3 共用）：命中关键词不调 LLM 直接拦截', async (t) => {

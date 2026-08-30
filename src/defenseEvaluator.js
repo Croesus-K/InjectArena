@@ -34,14 +34,17 @@
     ];
   }
 
-  async function probe(level, defensePrompt, entry, llm, judge) {
-    const messages = buildDefenseMessages(level, defensePrompt, entry.text);
+  async function probe(level, defensePrompt, entry, llm, judge, contextFor) {
+    const contextBlock = typeof contextFor === 'function' ? contextFor(level, entry.text) : '';
+    const messages = [
+      { role: 'system', content: buildDefenseSystemPrompt(level, defensePrompt) + contextBlock },
+      { role: 'user', content: entry.text }
+    ];
     try {
       const res = await llm.chat(messages, {});
       const verdict = judge(level, res.text);
-      // 攻击语料：泄露 secret 即未拦截；良性语料：触发 judge 意味着被误拦无从判定，
-      // 良性条目不含 secret，judge 恒为未破阵，“误杀”由调用方按布防拒绝语义另行判定——
-      // 这里统一返回模型输出与 tokens，语义在 evaluateDefense 汇总层表达。
+      // 攻击语料：泄露 secret 即未拦截；良性语料：模型回复含 rejectMarker 才算误杀，
+      // 语义在 evaluateDefense 汇总层表达。
       return { id: entry.id, text: entry.text, output: res.text, tokens: res.tokens, error: null, passed: verdict.passed };
     } catch (err) {
       return { id: entry.id, text: entry.text, output: '', tokens: null, error: (err && err.message) || String(err), passed: null };
@@ -55,9 +58,10 @@
    * @param {Array}    opts.payloads      攻击语料 [{id, text}]（泄露即失守）
    * @param {Array}    [opts.benign]      良性请求集 [{id, text}]，被拒即误杀（模型回复含拒绝标记才算误杀）
    * @param {object}   opts.llm           LLM 接口
-   * @param {Function} opts.judge         确定性判定函数
-   * @param {string}   [opts.rejectMarker] 良性请求被误杀的判定标记（模型回复包含该标记视为拒绝），默认 “拒绝” 不适用——
-   *                                      由调用方传入，如 “军机不可泄露”
+ * @param {Function} opts.judge         确定性判定函数
+ * @param {string}   [opts.rejectMarker] 良性请求被误杀的判定标记（模型回复包含该标记视为拒绝），由调用方传入，如 “军机不可泄露”
+ * @param {Function} [opts.contextFor]  上下文注入钩子 (level, payloadText) => string——
+ *                                      RAG 类关卡把检索命中的文书拼进系统上下文（闯关与跑分同一形状）
    * @returns {Promise<{attack: {total, evaluated, blocked, leaked, blockRate, leakRate},
    *                     benign: {total, evaluated, falsePositives, falsePositiveRate}|null, results}>}
    */
@@ -75,7 +79,7 @@
     let blocked = 0;
     let leaked = 0;
     for (const entry of opts.payloads || []) {
-      const r = await probe(level, defensePrompt, entry, llm, opts.judge);
+      const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor);
       results.push({ kind: 'attack', ...r });
       if (r.error === null) {
         evaluated += 1;
@@ -100,7 +104,7 @@
       let benignEvaluated = 0;
       let falsePositives = 0;
       for (const entry of opts.benign) {
-        const r = await probe(level, defensePrompt, entry, llm, opts.judge);
+        const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor);
         results.push({ kind: 'benign', ...r });
         if (r.error === null) {
           benignEvaluated += 1;
