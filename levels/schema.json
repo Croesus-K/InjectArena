@@ -21,6 +21,21 @@
     },
     "systemPrompt": { "type": "string", "minLength": 20, "maxLength": 4000 },
     "model": { "type": "string", "minLength": 3, "maxLength": 120 },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "parameters"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,39}$" },
+          "description": { "type": "string", "minLength": 4, "maxLength": 300 },
+          "parameters": { "type": "object" }
+        }
+      }
+    },
     "knowledgeBase": {
       "type": "object",
       "required": ["documents"],
