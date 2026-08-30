@@ -1,0 +1,10 @@
+# 密钥与运行时数据绝不进镜像
+.env
+data
+node_modules
+.git
+.github
+tests
+*.md
+*.log
+.mimosa
