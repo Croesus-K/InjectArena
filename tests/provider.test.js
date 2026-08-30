@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { createOpenAICompatible, ProviderError, joinUrl } = require('../src/provider/openaiCompatible.js');
-const { createProvider } = require('../src/provider/index.js');
+const { createProvider, createProviderRegistry } = require('../src/provider/index.js');
 
 function okFetch(payload) {
   return async (url, options) => {
@@ -81,4 +81,64 @@ test('工厂：openai-compatible 直通、未知 provider 抛错', () => {
   const p = createProvider({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl: okFetch({}) });
   assert.equal(p.provider, 'openai-compatible');
   assert.throws(() => createProvider({ provider: 'nope' }), /未知 provider/);
+});
+
+test('注册表：按模型缓存实例，关卡覆盖与默认模型各取所得', () => {
+  const reg = createProviderRegistry({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'default-model' });
+  const a = reg.get();
+  const b = reg.get('other-model');
+  assert.equal(a.model, 'default-model');
+  assert.equal(b.model, 'other-model');
+  assert.equal(reg.get(), a, '同一模型必须命中缓存');
+  assert.equal(reg.get('other-model'), b);
+  const empty = createProviderRegistry({ baseUrl: 'https://x', apiKey: 'k' });
+  assert.throws(() => empty.get(), /缺少 model/);
+});
+
+test('429 自动重试：两次拥堵后第三次成功', async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    if (calls <= 2) return { ok: false, status: 429, headers: { get: () => null }, text: async () => 'busy' };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+  };
+  const p = createOpenAICompatible({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl, retryBaseMs: 1 });
+  const res = await p.chat([], {});
+  assert.equal(res.text, 'ok');
+  assert.equal(calls, 3);
+});
+
+test('超过 maxRetries 仍 429 → 抛错且不再重试', async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return { ok: false, status: 429, headers: { get: () => null }, text: async () => 'busy' };
+  };
+  const p = createOpenAICompatible({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl, maxRetries: 1, retryBaseMs: 1 });
+  await assert.rejects(() => p.chat([], {}), (err) => err instanceof ProviderError && err.status === 429);
+  assert.equal(calls, 2); // 首发 + 1 次重试
+});
+
+test('401 鉴权失败不重试（fast-fail）', async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return { ok: false, status: 401, text: async () => 'bad key' };
+  };
+  const p = createOpenAICompatible({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl, retryBaseMs: 1 });
+  await assert.rejects(() => p.chat([], {}), (err) => err.status === 401);
+  assert.equal(calls, 1);
+});
+
+test('Retry-After 头存在时不抛错（优先于退避基数）', async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    if (calls === 1) return { ok: false, status: 429, headers: { get: () => '0.001' }, text: async () => 'busy' };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+  };
+  const p = createOpenAICompatible({ baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm', fetchImpl, retryBaseMs: 1 });
+  const res = await p.chat([], {});
+  assert.equal(res.text, 'ok');
+  assert.equal(calls, 2);
 });
