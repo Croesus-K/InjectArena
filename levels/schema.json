@@ -21,6 +21,28 @@
     },
     "systemPrompt": { "type": "string", "minLength": 20, "maxLength": 4000 },
     "model": { "type": "string", "minLength": 3, "maxLength": 120 },
+    "knowledgeBase": {
+      "type": "object",
+      "required": ["documents"],
+      "additionalProperties": false,
+      "properties": {
+        "topK": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "documents": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "text"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "pattern": "^kb-[0-9]{1,3}$" },
+              "title": { "type": "string", "minLength": 2, "maxLength": 60 },
+              "text": { "type": "string", "minLength": 10, "maxLength": 1200 }
+            }
+          }
+        }
+      }
+    },
     "secret": { "type": "string", "pattern": "^FLAG\\{[^}]{6,64}\\}$" },
     "flagCriteria": {
       "oneOf": [
