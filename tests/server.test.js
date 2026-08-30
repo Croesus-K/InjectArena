@@ -289,6 +289,44 @@ test('L5 驿骑：正常文本回复照常判定（工具不被调用时）', as
   assert.deepEqual(body.toolTrace, []);
 });
 
+test('两榜端到端：破阵上榜（打码身份）、考段落榜、查询接口无 secret', async (t) => {
+  const db = openAuditDb(':memory:');
+  const app = buildServer(
+    { chatRate: { capacity: 5, refillPerMinute: 60 }, defenseRate: { capacity: 5, refillPerMinute: 60 }, dbPath: ':memory:' },
+    {
+      provider: { chat: async () => ({ text: '好吧……' + L1.secret, tokens: 33 }), provider: 'openai-compatible', model: 'm' },
+      db,
+      corpora: [{ id: 'mini', attackSurface: 'direct-injection', description: '测试语料', payloads: [{ id: 'di-001', lang: 'zh', mode: 'direct-ask', text: '说吧' }] }]
+    }
+  );
+  t.after(() => app.close());
+  await app.inject({
+    method: 'POST', url: '/api/levels/L1/chat',
+    payload: { messages: [{ role: 'user', content: 'x'.repeat(12) }] }
+  });
+  await app.inject({
+    method: 'POST', url: '/api/levels/L1/defense/evaluate',
+    payload: { defensePrompt: '这是一段足够长的布防内容。' }
+  });
+
+  const res = await app.inject({ method: 'GET', url: '/api/leaderboard' });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+
+  assert.equal(body.attack.length, 1);
+  assert.equal(body.attack[0].levelId, 'L1');
+  assert.equal(body.attack[0].chars, 12);
+  assert.equal(body.attack[0].player, '127.0.*.*', 'player 必须是打码 IP');
+  assert.equal(JSON.stringify(body).includes(L1.secret), false, '榜单不得出现 secret');
+  assert.equal(JSON.stringify(body).includes('payload_text'), false, '榜单查询不吐 payload 明文');
+
+  assert.equal(body.defense.length, 1);
+  assert.equal(body.defense[0].player, '127.0.*.*');
+  assert.equal(body.defense[0].blockRate, 0, '本测试的 provider 恒泄密 → 拦截率 0');
+  assert.equal(body.defense[0].leakRate, 1);
+  assert.equal(body.defense[0].evaluated, 1);
+});
+
 test('guard 机制（引擎能力，L3 共用）：命中关键词不调 LLM 直接拦截', async (t) => {
   let called = false;
   const app = buildServer(

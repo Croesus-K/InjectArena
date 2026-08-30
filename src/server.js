@@ -23,7 +23,7 @@ const { loadCorpus, flattenCorpus } = require('./corpus.js');
 const { evaluateDefense } = require('./defenseEvaluator.js');
 const { runAgentTurn } = require('./agentRunner.js');
 const { buildRetrievalContext } = require('./retriever.js');
-const { openAuditDb, insertAudit } = require('./db.js');
+const { openAuditDb, insertAudit, maskIp, upsertBreachRecord, upsertDefenseRecord, listBreachRecords, listDefenseRecords } = require('./db.js');
 const { createProviderRegistry } = require('./provider/index.js');
 const { loadConfig, loadDotEnv } = require('./config.js');
 
@@ -130,6 +130,13 @@ function buildServer(config, deps) {
     levels: levels.map((l) => ({ ...publicLevel(l, config.model), bestBreach: bestBreach.get(l.id) || null }))
   }));
 
+  // 两榜（公开）：名将榜 = 最短破阵纪录；段位榜 = 最佳拦截率考段。
+  // player 是打码 IP，payload_text 是破阵者自己的招式（名将榜的展示核心）；无 secret。
+  app.get('/api/leaderboard', async () => ({
+    attack: listBreachRecords(db, 100),
+    defense: listDefenseRecords(db, 100)
+  }));
+
   app.post('/api/levels/:id/chat', async (req, reply) => {
     const level = levelById.get(req.params.id);
     if (!level) {
@@ -228,6 +235,12 @@ function buildServer(config, deps) {
       if (!prev || payloadText.length < prev.chars) {
         bestBreach.set(level.id, { chars: payloadText.length, tokens: agentResult.tokens === undefined ? null : agentResult.tokens });
       }
+      // 名将榜落库（每玩家每关保最短；player 为打码 IP）
+      upsertBreachRecord(db, {
+        levelId: level.id, player: maskIp(ip), chars: payloadText.length,
+        tokens: agentResult.tokens === undefined ? null : agentResult.tokens,
+        payloadText, ts: new Date().toISOString()
+      });
     }
     insertAudit(db, {
       ts: new Date().toISOString(), ip, route: 'chat', levelId: level.id,
@@ -348,6 +361,16 @@ function buildServer(config, deps) {
         falsePositives: report.benign ? report.benign.falsePositives : null
       })
     });
+
+    // 段位榜落库（每玩家每关保最佳考段；player 为打码 IP）
+    if (report.attack.evaluated > 0) {
+      upsertDefenseRecord(db, {
+        levelId: level.id, player: maskIp(ip),
+        blockRate: report.attack.blockRate, leakRate: report.attack.leakRate,
+        fpRate: report.benign ? report.benign.falsePositiveRate : null,
+        evaluated: report.attack.evaluated, ts: new Date().toISOString()
+      });
+    }
 
     return { attack: { ...report.attack, errors: errorCount }, benign: report.benign, results };
   });
