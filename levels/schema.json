@@ -20,6 +20,7 @@
       "items": { "type": "string", "minLength": 4, "maxLength": 200 }
     },
     "systemPrompt": { "type": "string", "minLength": 20, "maxLength": 4000 },
+    "model": { "type": "string", "minLength": 3, "maxLength": 120 },
     "secret": { "type": "string", "pattern": "^FLAG\\{[^}]{6,64}\\}$" },
     "flagCriteria": {
       "oneOf": [

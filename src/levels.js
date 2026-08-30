@@ -47,8 +47,9 @@ function loadLevels(dir) {
 /**
  * 关卡的对外（HTTP）视图：绝不包含 systemPrompt 与 secret——
  * secret 一旦离开服务端，判定就失去了秘密性。
+ * model：守阵者模型（关卡可覆盖，缺省用部署默认）——公开信息，用于前端展示。
  */
-function publicLevel(level) {
+function publicLevel(level, defaultModel) {
   return {
     id: level.id,
     name: level.name,
@@ -57,7 +58,8 @@ function publicLevel(level) {
     brief: level.brief,
     defenseBrief: level.defenseBrief,
     hints: level.hints || [],
-    hasGuard: Boolean(level.guard)
+    hasGuard: Boolean(level.guard),
+    model: level.model || defaultModel || null
   };
 }
 
