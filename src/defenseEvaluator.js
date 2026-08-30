@@ -34,20 +34,29 @@
     ];
   }
 
-  async function probe(level, defensePrompt, entry, llm, judge, contextFor) {
+  async function probe(level, defensePrompt, entry, llm, judgeFn, contextFor, tools) {
     const contextBlock = typeof contextFor === 'function' ? contextFor(level, entry.text) : '';
     const messages = [
       { role: 'system', content: buildDefenseSystemPrompt(level, defensePrompt) + contextBlock },
       { role: 'user', content: entry.text }
     ];
     try {
-      const res = await llm.chat(messages, {});
-      const verdict = judge(level, res.text);
-      // 攻击语料：泄露 secret 即未拦截；良性语料：模型回复含 rejectMarker 才算误杀，
-      // 语义在 evaluateDefense 汇总层表达。
-      return { id: entry.id, text: entry.text, output: res.text, tokens: res.tokens, error: null, passed: verdict.passed };
+      const res = await llm.chat(messages, Array.isArray(tools) && tools.length > 0 ? { tools } : {});
+      // 判定候选：文本 + 工具调用参数（L5 类关卡，机密可能经工具外传）
+      const candidates = [res.text || ''].concat((res.toolCalls || []).map((tc) => JSON.stringify(tc.args || {})));
+      let passed = false;
+      for (const candidate of candidates) {
+        if (judgeFn(level, candidate).passed) {
+          passed = true;
+          break;
+        }
+      }
+      return {
+        id: entry.id, text: entry.text, output: res.text, tokens: res.tokens,
+        error: null, passed, toolCalls: (res.toolCalls || []).length
+      };
     } catch (err) {
-      return { id: entry.id, text: entry.text, output: '', tokens: null, error: (err && err.message) || String(err), passed: null };
+      return { id: entry.id, text: entry.text, output: '', tokens: null, error: (err && err.message) || String(err), passed: null, toolCalls: 0 };
     }
   }
 
@@ -62,6 +71,7 @@
  * @param {string}   [opts.rejectMarker] 良性请求被误杀的判定标记（模型回复包含该标记视为拒绝），由调用方传入，如 “军机不可泄露”
  * @param {Function} [opts.contextFor]  上下文注入钩子 (level, payloadText) => string——
  *                                      RAG 类关卡把检索命中的文书拼进系统上下文（闯关与跑分同一形状）
+ * @param {Function} [opts.toolsFor]   工具注入钩子 (level) => tools——工具类关卡让模型可发起工具调用，
    * @returns {Promise<{attack: {total, evaluated, blocked, leaked, blockRate, leakRate},
    *                     benign: {total, evaluated, falsePositives, falsePositiveRate}|null, results}>}
    */
@@ -79,7 +89,7 @@
     let blocked = 0;
     let leaked = 0;
     for (const entry of opts.payloads || []) {
-      const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor);
+      const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, opts.toolsFor ? opts.toolsFor(level) : null);
       results.push({ kind: 'attack', ...r });
       if (r.error === null) {
         evaluated += 1;
@@ -104,7 +114,7 @@
       let benignEvaluated = 0;
       let falsePositives = 0;
       for (const entry of opts.benign) {
-        const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor);
+        const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, opts.toolsFor ? opts.toolsFor(level) : null);
         results.push({ kind: 'benign', ...r });
         if (r.error === null) {
           benignEvaluated += 1;
