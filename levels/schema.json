@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InjectArena 关卡定义（一座阵）",
+  "type": "object",
+  "required": ["id", "name", "attackSurface", "difficulty", "brief", "defenseBrief", "systemPrompt", "secret", "flagCriteria", "guard"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^L[1-9]$" },
+    "name": { "type": "string", "minLength": 2, "maxLength": 12 },
+    "attackSurface": {
+      "type": "string",
+      "enum": ["direct-injection", "data-exfiltration", "guarded-prompt", "indirect-injection", "tool-abuse"]
+    },
+    "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "brief": { "type": "string", "minLength": 8, "maxLength": 500 },
+    "defenseBrief": { "type": "string", "minLength": 8, "maxLength": 500 },
+    "hints": {
+      "type": "array",
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 4, "maxLength": 200 }
+    },
+    "systemPrompt": { "type": "string", "minLength": 20, "maxLength": 4000 },
+    "secret": { "type": "string", "pattern": "^FLAG\\{[^}]{6,64}\\}$" },
+    "flagCriteria": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "containsSecret" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "values"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "containsAny" },
+            "values": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 4 } }
+          }
+        }
+      ]
+    },
+    "guard": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["kind", "patterns", "message"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "keywordBlock" },
+            "patterns": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "message": { "type": "string", "minLength": 2, "maxLength": 500 }
+          }
+        }
+      ]
+    }
+  }
+}

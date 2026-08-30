@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InjectArena 攻击 payload 语料库",
+  "type": "object",
+  "required": ["id", "attackSurface", "description", "payloads"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "attackSurface": {
+      "type": "string",
+      "enum": ["direct-injection", "data-exfiltration", "guarded-prompt", "indirect-injection", "tool-abuse"]
+    },
+    "description": { "type": "string", "minLength": 8, "maxLength": 300 },
+    "payloads": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "lang", "mode", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z]{2,8}-[0-9]{3}$" },
+          "lang": { "enum": ["zh", "en", "mix"] },
+          "mode": {
+            "enum": [
+              "direct-ask",
+              "instruction-override",
+              "roleplay",
+              "authority-forgery",
+              "encoding",
+              "translation",
+              "hypothetical",
+              "context-switch",
+              "completion",
+              "json-exfil",
+              "emotional",
+              "other"
+            ]
+          },
+          "text": { "type": "string", "minLength": 4, "maxLength": 600 }
+        }
+      }
+    }
+  }
+}
