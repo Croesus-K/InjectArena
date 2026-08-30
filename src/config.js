@@ -56,7 +56,9 @@ function loadConfig(env) {
     defenseRate: {
       capacity: Number(e.INJECTARENA_DEFENSE_RATE_CAPACITY || 2),
       refillPerMinute: Number(e.INJECTARENA_DEFENSE_RATE_REFILL || 2)
-    }
+    },
+    // 评测并发：同时打向 LLM 的 payload 数（免费池建议 1-4，过高易触发 429 风暴）
+    evalConcurrency: Number(e.INJECTARENA_EVAL_CONCURRENCY || 4)
   };
 }
 

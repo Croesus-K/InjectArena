@@ -92,6 +92,17 @@ function buildServer(config, deps) {
   const d = deps || {};
   const app = fastifyFactory({ logger: d.logger || false });
 
+  // 基线安全响应头：静态页与 API 统一加固（流式路由在 hijack 后自行补齐）
+  const SECURITY_HEADERS = {
+    'x-frame-options': 'DENY',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:"
+  };
+  app.addHook('onRequest', async (_req, reply) => {
+    for (const [key, value] of Object.entries(SECURITY_HEADERS)) reply.header(key, value);
+  });
+
   const levels = d.levels || loadLevels(LEVELS_DIR);
   const levelById = new Map(levels.map((l) => [l.id, l]));
   const corpora = d.corpora || loadCorpus();
@@ -99,8 +110,14 @@ function buildServer(config, deps) {
   const defenseLimiter = d.defenseRateLimiter || new TokenBucketLimiter(config.defenseRate);
   const db = d.db || openAuditDb(config.dbPath);
 
-  // 本阵最短破阵纪录（内存态，重启清零）：激励“最短 payload”玩法，正式榜后续接 SQLite
-  const bestBreach = new Map();
+  // 本阵最短破阵纪录：直接从两榜存储读取（每关第一条 = 字符最短者）
+  function bestBreachByLevel() {
+    const best = {};
+    for (const r of listBreachRecords(db, 500)) {
+      if (!best[r.levelId]) best[r.levelId] = { chars: r.chars, player: r.player };
+    }
+    return best;
+  }
 
   // BYOK：baseUrl/apiKey 缺失则不建 provider，聊天接口降级为 503。
   // providerFor(level)：关卡可用 model 字段指定自己的守阵者（强度分层），按模型缓存实例。
@@ -126,9 +143,12 @@ function buildServer(config, deps) {
     model: hasInjected ? (d.provider ? d.provider.model : null) : (config.model || null)
   }));
 
-  app.get('/api/levels', async () => ({
-    levels: levels.map((l) => ({ ...publicLevel(l, config.model), bestBreach: bestBreach.get(l.id) || null }))
-  }));
+  app.get('/api/levels', async () => {
+    const best = bestBreachByLevel();
+    return {
+      levels: levels.map((l) => ({ ...publicLevel(l, config.model), bestBreach: best[l.id] || null }))
+    };
+  });
 
   // 两榜（公开）：名将榜 = 最短破阵纪录；段位榜 = 最佳拦截率考段。
   // player 是打码 IP，payload_text 是破阵者自己的招式（名将榜的展示核心）；无 secret。
@@ -231,10 +251,6 @@ function buildServer(config, deps) {
 
     const verdict = agentResult.verdict;
     if (verdict.passed) {
-      const prev = bestBreach.get(level.id);
-      if (!prev || payloadText.length < prev.chars) {
-        bestBreach.set(level.id, { chars: payloadText.length, tokens: agentResult.tokens === undefined ? null : agentResult.tokens });
-      }
       // 名将榜落库（每玩家每关保最短；player 为打码 IP）
       upsertBreachRecord(db, {
         levelId: level.id, player: maskIp(ip), chars: payloadText.length,
@@ -260,83 +276,44 @@ function buildServer(config, deps) {
 
   // 守方评分：布防插槽 × 同源攻击语料 → 拦截率/泄露率/误杀率（段位评分数据源）。
   // 一次评测 = 语料条数 × 真实 LLM 调用，成本高：独立限流 + 默认全量可裁剪。
-  app.post('/api/levels/:id/defense/evaluate', async (req, reply) => {
-    const level = levelById.get(req.params.id);
-    if (!level) {
-      reply.code(404);
-      return { error: '未知关卡' };
-    }
-
-    const ip = req.ip || 'unknown';
-    const rl = defenseLimiter.check('defense:' + ip);
-    if (!rl.allowed) {
-      reply.code(429).header('retry-after', String(rl.retryAfterSeconds));
-      insertAudit(db, { ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id, outcome: 'rate-limited' });
-      return { error: '考段太密，' + rl.retryAfterSeconds + ' 秒后再来（每次评测是语料数 × 真实 LLM 调用）。' };
-    }
-
+  // 两个出口：本路由（一次性 JSON）与 /stream（NDJSON 流式进度），共用校验与收尾。
+  function parseDefenseRequest(req, reply) {
     const body = req.body || {};
     const defensePrompt = typeof body.defensePrompt === 'string' ? body.defensePrompt.trim() : '';
     if (defensePrompt.length < 10 || defensePrompt.length > 4000) {
       reply.code(400);
-      return { error: '布防内容需 10-4000 字。' };
+      return null;
     }
     const rejectMarker = typeof body.rejectMarker === 'string' && body.rejectMarker.trim()
       ? body.rejectMarker.trim().slice(0, 100)
       : null;
     let limit = Number(body.limit);
     if (!Number.isInteger(limit) || limit < 1) limit = null; // null = 全量语料
+    return { defensePrompt, rejectMarker, limit };
+  }
 
-    if (!providerReady) {
-      reply.code(503);
-      return {
-        error: '服务端未配置 LLM API key（BYOK）。请设置 INJECTARENA_BASE_URL / INJECTARENA_API_KEY / INJECTARENA_MODEL 后重启。'
-      };
-    }
+  function defenseEvalOptions(level, defensePrompt, rejectMarker, payloads) {
+    return {
+      level,
+      defensePrompt,
+      payloads,
+      benign: rejectMarker ? BENIGN_PROBES : null,
+      rejectMarker: rejectMarker || undefined,
+      llm: providerFor(level),
+      judge,
+      concurrency: config.evalConcurrency || 1,
+      // RAG 类关卡：跑分时同样注入检索上下文（闯关与跑分同一形状）
+      contextFor: (lv, text) => buildRetrievalContext(lv, text).context,
+      // 工具类关卡：跑分时同样允许工具调用（判定含工具参数）
+      toolsFor: (lv) => (Array.isArray(lv.tools) && lv.tools.length > 0 ? lv.tools : null)
+    };
+  }
 
-    const corpus = selectCorpus(level, corpora);
-    let payloads = corpus.payloads;
-    if (limit) payloads = payloads.slice(0, Math.min(limit, payloads.length));
-
-    let report;
-    try {
-      report = await evaluateDefense({
-        level,
-        defensePrompt,
-        payloads,
-        benign: rejectMarker ? BENIGN_PROBES : null,
-        rejectMarker: rejectMarker || undefined,
-        llm: providerFor(level),
-        judge,
-        // RAG 类关卡：跑分时同样注入检索上下文（闯关与跑分同一形状）
-        contextFor: (lv, text) => buildRetrievalContext(lv, text).context,
-        // 工具类关卡：跑分时同样允许工具调用（判定含工具参数）
-        toolsFor: (lv) => (Array.isArray(lv.tools) && lv.tools.length > 0 ? lv.tools : null)
-      });
-    } catch (err) {
-      reply.code(500);
-      insertAudit(db, {
-        ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id,
-        outcome: 'eval-error', detail: String(err.message || err).slice(0, 300)
-      });
-      return { error: '评测失败：' + (err.message || err) };
-    }
-
+  // 收尾：审计 + 段位榜落库 + 响应行组装（两种出口共用）
+  function finalizeDefense(ip, level, defensePrompt, rejectMarker, report) {
     let tokens = 0;
     const errorCount = report.results.filter((r) => r.error).length;
     const firstError = (report.results.find((r) => r.error) || {}).error || '';
-
-    // 全部 LLM 调用失败时，全 0 比率没有意义——快速失败并指明原因
-    if (report.attack.evaluated === 0 && errorCount > 0) {
-      reply.code(502);
-      insertAudit(db, {
-        ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id,
-        payloadChars: defensePrompt.length, outcome: 'defense-eval-failed',
-        detail: firstError.slice(0, 300)
-      });
-      return { error: '评测失败：所有 payload 的 LLM 调用均失败（请检查 API key 与额度）。首个错误：' + firstError };
-    }
-
     const results = report.results.map((r) => {
       if (typeof r.tokens === 'number') tokens += r.tokens;
       return {
@@ -372,7 +349,148 @@ function buildServer(config, deps) {
       });
     }
 
-    return { attack: { ...report.attack, errors: errorCount }, benign: report.benign, results };
+    return { attack: { ...report.attack, errors: errorCount }, benign: report.benign, results, errorCount, firstError };
+  }
+
+  app.post('/api/levels/:id/defense/evaluate', async (req, reply) => {
+    const level = levelById.get(req.params.id);
+    if (!level) {
+      reply.code(404);
+      return { error: '未知关卡' };
+    }
+
+    const ip = req.ip || 'unknown';
+    const rl = defenseLimiter.check('defense:' + ip);
+    if (!rl.allowed) {
+      reply.code(429).header('retry-after', String(rl.retryAfterSeconds));
+      insertAudit(db, { ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id, outcome: 'rate-limited' });
+      return { error: '考段太密，' + rl.retryAfterSeconds + ' 秒后再来（每次评测是语料数 × 真实 LLM 调用）。' };
+    }
+
+    const parsed = parseDefenseRequest(req, reply);
+    if (!parsed) return { error: '布防内容需 10-4000 字。' };
+
+    if (!providerReady) {
+      reply.code(503);
+      return {
+        error: '服务端未配置 LLM API key（BYOK）。请设置 INJECTARENA_BASE_URL / INJECTARENA_API_KEY / INJECTARENA_MODEL 后重启。'
+      };
+    }
+
+    const corpus = selectCorpus(level, corpora);
+    let payloads = corpus.payloads;
+    if (parsed.limit) payloads = payloads.slice(0, Math.min(parsed.limit, payloads.length));
+
+    let report;
+    try {
+      report = await evaluateDefense(defenseEvalOptions(level, parsed.defensePrompt, parsed.rejectMarker, payloads));
+    } catch (err) {
+      reply.code(500);
+      insertAudit(db, {
+        ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id,
+        outcome: 'eval-error', detail: String(err.message || err).slice(0, 300)
+      });
+      return { error: '评测失败：' + (err.message || err) };
+    }
+
+    const out = finalizeDefense(ip, level, parsed.defensePrompt, parsed.rejectMarker, report);
+
+    // 全部 LLM 调用失败时，全 0 比率没有意义——快速失败并指明原因
+    if (out.attack.evaluated === 0 && out.errorCount > 0) {
+      insertAudit(db, {
+        ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id,
+        payloadChars: parsed.defensePrompt.length, outcome: 'defense-eval-failed',
+        detail: out.firstError.slice(0, 300)
+      });
+      reply.code(502);
+      return { error: '评测失败：所有 payload 的 LLM 调用均失败（请检查 API key 与额度）。首个错误：' + out.firstError };
+    }
+
+    return { attack: out.attack, benign: out.benign, results: out.results };
+  });
+
+  // 流式考段：NDJSON——每行一个 {type:"start"|"progress"|"report"|"error"} 事件，
+  // 前端实时显示进度；校验失败仍走普通 JSON 错误响应。
+  app.post('/api/levels/:id/defense/evaluate/stream', async (req, reply) => {
+    const level = levelById.get(req.params.id);
+    if (!level) {
+      reply.code(404);
+      return { error: '未知关卡' };
+    }
+
+    const ip = req.ip || 'unknown';
+    const rl = defenseLimiter.check('defense:' + ip);
+    if (!rl.allowed) {
+      reply.code(429).header('retry-after', String(rl.retryAfterSeconds));
+      insertAudit(db, { ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id, outcome: 'rate-limited' });
+      return { error: '考段太密，' + rl.retryAfterSeconds + ' 秒后再来。' };
+    }
+
+    const parsed = parseDefenseRequest(req, reply);
+    if (!parsed) return { error: '布防内容需 10-4000 字。' };
+
+    if (!providerReady) {
+      reply.code(503);
+      return {
+        error: '服务端未配置 LLM API key（BYOK）。请设置 INJECTARENA_BASE_URL / INJECTARENA_API_KEY / INJECTARENA_MODEL 后重启。'
+      };
+    }
+
+    const corpus = selectCorpus(level, corpora);
+    let payloads = corpus.payloads;
+    if (parsed.limit) payloads = payloads.slice(0, Math.min(parsed.limit, payloads.length));
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type': 'application/x-ndjson; charset=utf-8',
+      'cache-control': 'no-cache',
+      'x-frame-options': 'DENY',
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'no-referrer'
+    });
+    const writeLine = (obj) => {
+      try {
+        reply.raw.write(JSON.stringify(obj) + '\n');
+      } catch (_) { /* 客户端断开不影响服务端继续评测落账 */ }
+    };
+
+    writeLine({ type: 'start', total: payloads.length, benign: parsed.rejectMarker ? BENIGN_PROBES.length : 0, concurrency: config.evalConcurrency || 1 });
+
+    let done = 0;
+    let report;
+    try {
+      report = await evaluateDefense({
+        ...defenseEvalOptions(level, parsed.defensePrompt, parsed.rejectMarker, payloads),
+        onResult: (r) => {
+          done += 1;
+          writeLine({ type: 'progress', done, id: r.id, kind: r.kind, leaked: r.passed === true, error: Boolean(r.error) });
+        }
+      });
+    } catch (err) {
+      insertAudit(db, {
+        ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id,
+        outcome: 'eval-error', detail: String(err.message || err).slice(0, 300)
+      });
+      writeLine({ type: 'error', message: '评测失败：' + (err.message || err) });
+      reply.raw.end();
+      return;
+    }
+
+    const out = finalizeDefense(ip, level, parsed.defensePrompt, parsed.rejectMarker, report);
+
+    if (out.attack.evaluated === 0 && out.errorCount > 0) {
+      insertAudit(db, {
+        ts: new Date().toISOString(), ip, route: 'defense', levelId: level.id,
+        payloadChars: parsed.defensePrompt.length, outcome: 'defense-eval-failed',
+        detail: out.firstError.slice(0, 300)
+      });
+      writeLine({ type: 'error', message: '评测失败：所有 payload 的 LLM 调用均失败（请检查 API key 与额度）。首个错误：' + out.firstError });
+      reply.raw.end();
+      return;
+    }
+
+    writeLine({ type: 'report', attack: out.attack, benign: out.benign, results: out.results });
+    reply.raw.end();
   });
 
   app.setNotFoundHandler((_req, reply) => {

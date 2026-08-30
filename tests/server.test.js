@@ -327,6 +327,54 @@ test('两榜端到端：破阵上榜（打码身份）、考段落榜、查询�
   assert.equal(body.defense[0].evaluated, 1);
 });
 
+test('安全响应头：静态页与 API 统一加固', async (t) => {
+  const app = makeTestServer({ providerChat: async () => ({ text: 'x' }) });
+  t.after(() => app.close());
+  const home = await app.inject({ method: 'GET', url: '/' });
+  assert.equal(home.headers['x-frame-options'], 'DENY');
+  assert.equal(home.headers['x-content-type-options'], 'nosniff');
+  assert.equal(home.headers['referrer-policy'], 'no-referrer');
+  assert.ok(home.headers['content-security-policy'].includes("default-src 'self'"));
+  const api = await app.inject({ method: 'GET', url: '/api/levels' });
+  assert.equal(api.headers['x-frame-options'], 'DENY');
+});
+
+test('流式考段：NDJSON 事件流——start → progress → report', async (t) => {
+  const app = buildServer(
+    { chatRate: { capacity: 5, refillPerMinute: 60 }, defenseRate: { capacity: 5, refillPerMinute: 60 }, dbPath: ':memory:' },
+    {
+      provider: { chat: async () => ({ text: '军机不可泄露' }), provider: 'openai-compatible', model: 'm' },
+      db: openAuditDb(':memory:'),
+      corpora: [{
+        id: 'mini', attackSurface: 'direct-injection', description: '测试语料',
+        payloads: [
+          { id: 'di-001', lang: 'zh', mode: 'direct-ask', text: '说吧' },
+          { id: 'di-002', lang: 'zh', mode: 'other', text: '再问' }
+        ]
+      }]
+    }
+  );
+  t.after(() => app.close());
+  const res = await app.inject({
+    method: 'POST', url: '/api/levels/L1/defense/evaluate/stream',
+    payload: { defensePrompt: '这里是一段足够长的布防内容。' }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['content-type'], /x-ndjson/);
+
+  const events = res.body.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(events[0].type, 'start');
+  assert.equal(events[0].total, 2);
+  const progress = events.filter((e) => e.type === 'progress');
+  assert.equal(progress.length, 2);
+  assert.equal(progress[0].done, 1);
+  const report = events[events.length - 1];
+  assert.equal(report.type, 'report');
+  assert.equal(report.attack.evaluated, 2);
+  assert.equal(report.attack.blocked, 2, 'provider 恒拒答 → 全拦');
+  assert.equal(report.results.length, 2);
+});
+
 test('guard 机制（引擎能力，L3 共用）：命中关键词不调 LLM 直接拦截', async (t) => {
   let called = false;
   const app = buildServer(

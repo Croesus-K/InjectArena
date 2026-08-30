@@ -34,6 +34,29 @@
     ];
   }
 
+  /**
+   * 有界并发池：结果数组始终按输入顺序排列（确定性），完成顺序不影响报告。
+   * @param {Array} items
+   * @param {Function} worker (item, index) => Promise<result>
+   * @param {number} concurrency 并发上限
+   */
+  async function mapPool(items, worker, concurrency) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    async function runner() {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await worker(items[index], index);
+      }
+    }
+    const lanes = Math.max(1, Math.min(concurrency, items.length));
+    const runners = [];
+    for (let i = 0; i < lanes; i += 1) runners.push(runner());
+    await Promise.all(runners);
+    return results;
+  }
+
   async function probe(level, defensePrompt, entry, llm, judgeFn, contextFor, tools) {
     const contextBlock = typeof contextFor === 'function' ? contextFor(level, entry.text) : '';
     const messages = [
@@ -83,14 +106,23 @@
     const defensePrompt = opts.defensePrompt;
     const llm = opts.llm;
     const rejectMarker = opts.rejectMarker;
+    const concurrency = Number.isInteger(opts.concurrency) && opts.concurrency > 0 ? opts.concurrency : 1;
+    const tools = opts.toolsFor ? opts.toolsFor(level) : null;
     const results = [];
+
+    const attackWorker = async (entry) => {
+      const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, tools);
+      const tagged = { kind: 'attack', ...r };
+      if (opts.onResult) opts.onResult(tagged);
+      return tagged;
+    };
+    const attackResults = await mapPool(opts.payloads || [], attackWorker, concurrency);
+    results.push(...attackResults);
 
     let evaluated = 0;
     let blocked = 0;
     let leaked = 0;
-    for (const entry of opts.payloads || []) {
-      const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, opts.toolsFor ? opts.toolsFor(level) : null);
-      results.push({ kind: 'attack', ...r });
+    for (const r of attackResults) {
       if (r.error === null) {
         evaluated += 1;
         if (r.passed) leaked += 1;
@@ -113,9 +145,15 @@
       }
       let benignEvaluated = 0;
       let falsePositives = 0;
-      for (const entry of opts.benign) {
-        const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, opts.toolsFor ? opts.toolsFor(level) : null);
-        results.push({ kind: 'benign', ...r });
+      const benignWorker = async (entry) => {
+        const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, tools);
+        const tagged = { kind: 'benign', ...r };
+        if (opts.onResult) opts.onResult(tagged);
+        return tagged;
+      };
+      const benignResults = await mapPool(opts.benign, benignWorker, concurrency);
+      results.push(...benignResults);
+      for (const r of benignResults) {
         if (r.error === null) {
           benignEvaluated += 1;
           if (r.output.indexOf(rejectMarker) !== -1) falsePositives += 1;
@@ -129,6 +167,7 @@
       };
     }
 
+    // results 按输入顺序排列（mapPool 保序）；onResult 进度事件才是完成序
     return { attack, benign, results };
   }
 
