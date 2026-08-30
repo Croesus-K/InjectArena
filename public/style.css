@@ -305,3 +305,24 @@ footer {
 }
 
 .retrieved-note.tool-note { color: #7ea6d9; }
+
+/* ---- 榜 · 观星台 ---- */
+
+.board-title { font-family: var(--serif); font-size: 17px; letter-spacing: 2px; margin: 18px 0 4px; }
+.board-title:first-child { margin-top: 0; }
+
+#board-panel h3 { font-family: var(--serif); font-size: 14px; color: var(--ink-dim); margin: 14px 0 6px; letter-spacing: 1px; }
+
+.board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.board-table th, .board-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.board-table th { color: var(--ink-dim); font-weight: normal; font-size: 12px; }
+.board-table tr:last-child td { border-bottom: none; }
+.board-table tbody tr:first-child td { color: var(--accent); font-weight: bold; }

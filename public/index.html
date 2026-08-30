@@ -25,6 +25,7 @@
       <div id="mode-tabs">
         <button id="tab-attack" class="tab active" type="button">攻 · 破阵</button>
         <button id="tab-defense" class="tab" type="button">守 · 布防</button>
+        <button id="tab-board" class="tab" type="button">榜 · 观星</button>
       </div>
 
       <div id="attack-panel">
@@ -40,6 +41,16 @@
           <span id="record"></span>
         </div>
         <div id="notice"></div>
+      </div>
+
+      <div id="board-panel" hidden>
+        <h2 class="board-title">名将榜 · 攻</h2>
+        <p class="muted">每关最短破阵纪录，更短者覆盖。身份为打码 IP。</p>
+        <div id="board-attack"></div>
+        <h2 class="board-title">段位榜 · 守</h2>
+        <p class="muted">每关最佳考段：拦截率优先，同率取样本更大者；「误杀」列为带误杀判定的考段。</p>
+        <div id="board-defense"></div>
+        <div id="board-empty" class="muted"></div>
       </div>
 
       <div id="defense-panel" hidden>

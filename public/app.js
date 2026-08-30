@@ -30,8 +30,13 @@
     health: document.getElementById('health'),
     tabAttack: document.getElementById('tab-attack'),
     tabDefense: document.getElementById('tab-defense'),
+    tabBoard: document.getElementById('tab-board'),
     attackPanel: document.getElementById('attack-panel'),
     defensePanel: document.getElementById('defense-panel'),
+    boardPanel: document.getElementById('board-panel'),
+    boardAttack: document.getElementById('board-attack'),
+    boardDefense: document.getElementById('board-defense'),
+    boardEmpty: document.getElementById('board-empty'),
     defenseLevelName: document.getElementById('defense-level-name'),
     defensePrompt: document.getElementById('defense-prompt'),
     rejectMarker: document.getElementById('reject-marker'),
@@ -124,12 +129,105 @@
     state.mode = mode;
     el.tabAttack.className = 'tab' + (mode === 'attack' ? ' active' : '');
     el.tabDefense.className = 'tab' + (mode === 'defense' ? ' active' : '');
+    el.tabBoard.className = 'tab' + (mode === 'board' ? ' active' : '');
     el.attackPanel.hidden = mode !== 'attack';
     el.defensePanel.hidden = mode !== 'defense';
+    el.boardPanel.hidden = mode !== 'board';
+    if (mode === 'board') loadBoard();
   }
 
   el.tabAttack.addEventListener('click', function () { switchMode('attack'); });
   el.tabDefense.addEventListener('click', function () { switchMode('defense'); });
+  el.tabBoard.addEventListener('click', function () { switchMode('board'); });
+
+  /* ---------- 榜 · 观星台 ---------- */
+
+  function groupByLevel(rows) {
+    var map = {};
+    rows.forEach(function (r) {
+      if (!map[r.levelId]) map[r.levelId] = [];
+      map[r.levelId].push(r);
+    });
+    return map;
+  }
+
+  function boardTable(headers, rows) {
+    var table = document.createElement('table');
+    table.className = 'board-table';
+    var thead = document.createElement('thead');
+    var trh = document.createElement('tr');
+    headers.forEach(function (h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    rows.forEach(function (cells) {
+      var tr = document.createElement('tr');
+      cells.forEach(function (c) {
+        var td = document.createElement('td');
+        td.textContent = c;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function shortTs(ts) {
+    return typeof ts === 'string' ? ts.slice(0, 16).replace('T', ' ') : '';
+  }
+
+  async function loadBoard() {
+    el.boardAttack.innerHTML = '';
+    el.boardDefense.innerHTML = '';
+    el.boardEmpty.textContent = '';
+    try {
+      var data = await (await fetch('/api/leaderboard')).json();
+      var lvName = {};
+      state.levels.forEach(function (lv) { lvName[lv.id] = lv.name; });
+
+      var groups = groupByLevel(data.attack || []);
+      Object.keys(groups).sort().forEach(function (levelId) {
+        var h = document.createElement('h3');
+        h.textContent = levelId + ' · ' + (lvName[levelId] || '');
+        el.boardAttack.appendChild(h);
+        el.boardAttack.appendChild(boardTable(
+          ['名号', '最短', 'token', '时间'],
+          groups[levelId].map(function (r) { return [r.player, r.chars + ' 字', r.tokens || '-', shortTs(r.ts)]; })
+        ));
+      });
+
+      var dgroups = groupByLevel(data.defense || []);
+      Object.keys(dgroups).sort().forEach(function (levelId) {
+        var h = document.createElement('h3');
+        h.textContent = levelId + ' · ' + (lvName[levelId] || '');
+        el.boardDefense.appendChild(h);
+        el.boardDefense.appendChild(boardTable(
+          ['名号', '拦截率', '泄露率', '误杀率', '样本', '时间'],
+          dgroups[levelId].map(function (r) {
+            return [
+              r.player,
+              Math.round(r.blockRate * 1000) / 10 + '%',
+              Math.round(r.leakRate * 1000) / 10 + '%',
+              r.fpRate === null || r.fpRate === undefined ? '-' : Math.round(r.fpRate * 1000) / 10 + '%',
+              r.evaluated,
+              shortTs(r.ts)
+            ];
+          })
+        ));
+      });
+
+      if (!Object.keys(groups).length && !Object.keys(dgroups).length) {
+        el.boardEmpty.textContent = '两榜皆虚位以待——破一阵、考一段，名字便上来了。';
+      }
+    } catch (e) {
+      el.boardEmpty.textContent = '榜单加载失败：' + e.message;
+    }
+  }
 
   /* ---------- 攻侧：聊天与判定 ---------- */
 
