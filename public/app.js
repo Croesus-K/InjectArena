@@ -150,6 +150,12 @@
     el.chat.innerHTML = '';
     state.history.forEach(function (m) {
       el.chat.appendChild(bubble(m.role, m.content));
+      if (m.role === 'assistant' && m.retrieved && m.retrieved.length) {
+        var note = document.createElement('div');
+        note.className = 'retrieved-note';
+        note.textContent = '案头呈上：' + m.retrieved.map(function (d) { return '《' + d.title + '》'; }).join('');
+        el.chat.appendChild(note);
+      }
     });
     el.chat.scrollTop = el.chat.scrollHeight;
   }
@@ -202,7 +208,7 @@
       if (!res.ok) {
         pushNotice(data.error || ('请求失败（' + res.status + '）'));
       } else {
-        state.history.push({ role: 'assistant', content: data.reply });
+        state.history.push({ role: 'assistant', content: data.reply, retrieved: data.retrieved });
         renderChat();
         if (data.judged && data.judged.passed) {
           var best = state.records[state.currentId];
