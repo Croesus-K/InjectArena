@@ -2,11 +2,14 @@
 
 > [![CI](https://github.com/Croesus-K/InjectArena/actions/workflows/ci.yml/badge.svg)](https://github.com/Croesus-K/InjectArena/actions/workflows/ci.yml)
 > [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+> [![Listed in OWASP VWAD](https://img.shields.io/badge/Listed_in-OWASP_VWAD-2b7bb9?logo=owasp)](https://vwad.owasp.org/app/injectarena/)
 
 > 攻心为上，攻城为下。
 > 中文可自部署的 LLM 提示注入攻防闯关靶场——每道关卡是一座「阵」，守阵者持有 flag。
 
 像 Gandalf 一样好玩、像 Damn Vulnerable LLM Agent 一样可自部署，比它们多一层**攻防双向评分**。
+
+已收录于 [OWASP Vulnerable Web Applications Directory](https://vwad.owasp.org/app/injectarena/)（LLM 靶场类目，与 Damn Vulnerable LLM Agent 同列）。
 
 ## 三大差异点
 
