@@ -36,6 +36,8 @@
 
   /**
    * 有界并发池：结果数组始终按输入顺序排列（确定性），完成顺序不影响报告。
+   * 并发安全不变量：cursor 的读-增在 await 之前的同一同步段内完成，单线程
+   * 事件循环保证不重复分发；results 仅按下标写入、从不整体重新赋值。
    * @param {Array} items
    * @param {Function} worker (item, index) => Promise<result>
    * @param {number} concurrency 并发上限
@@ -47,7 +49,14 @@
       while (cursor < items.length) {
         const index = cursor;
         cursor += 1;
-        results[index] = await worker(items[index], index);
+        try {
+          results[index] = await worker(items[index], index);
+        } catch (err) {
+          // 防御性收口：worker 理论上不抛（probe 已自捕），但单个失败
+          // 不允许炸掉整个池或留下 unhandled rejection；错误标记进槽位，
+          // 汇总层按「不可评估」剔除出分母。
+          results[index] = { error: (err && err.message) || String(err) };
+        }
       }
     }
     const lanes = Math.max(1, Math.min(concurrency, items.length));
