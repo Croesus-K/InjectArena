@@ -8,7 +8,7 @@
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
     "attackSurface": {
       "type": "string",
-      "enum": ["direct-injection", "data-exfiltration", "guarded-prompt", "indirect-injection", "tool-abuse"]
+      "enum": ["direct-injection", "data-exfiltration", "guarded-prompt", "indirect-injection", "tool-abuse", "mcp-poisoning"]
     },
     "description": { "type": "string", "minLength": 8, "maxLength": 300 },
     "payloads": {

@@ -43,7 +43,7 @@ test('GET /api/levels：只出公开视图，含守阵者模型与本阵纪录�
   const res = await app.inject({ method: 'GET', url: '/api/levels' });
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body);
-  assert.equal(body.levels.length, 5);
+  assert.equal(body.levels.length, 6);
   assert.equal(res.body.includes('systemPrompt'), false);
   assert.equal(res.body.includes(L1.secret), false);
   assert.equal(res.body.includes(L4_POISON), false, '文书柜内容不进公开视图');
