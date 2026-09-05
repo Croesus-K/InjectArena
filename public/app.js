@@ -263,11 +263,13 @@
       '<p class="debrief-label">攻击原理</p><p class="debrief-body"></p>' +
       '<p class="debrief-label">真实案例</p><ul class="debrief-cases"></ul>' +
       '<p class="debrief-label">OWASP LLM Top 10（2025）映射</p><p class="debrief-body"></p>' +
-      '<p class="debrief-label">防御要点</p><p class="debrief-body"></p>';
+      '<p class="debrief-label">防御要点</p><p class="debrief-body"></p>' +
+      '<p class="debrief-label">布防参考 · 可直接粘贴到「守 · 布防」开考</p><p class="debrief-body debrief-sample"></p>';
     var ps = body.querySelectorAll('.debrief-body');
     ps[0].textContent = d.principle;
     ps[1].textContent = d.owasp.join('；');
     ps[2].textContent = d.defense;
+    if (d.defenseSample) ps[3].textContent = d.defenseSample;
     var ul = body.querySelector('.debrief-cases');
     (d.cases || []).forEach(function (c) {
       var li = document.createElement('li');

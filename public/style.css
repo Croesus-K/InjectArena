@@ -350,6 +350,7 @@ details.debrief summary {
 .debrief-body { margin: 0; font-size: 13px; color: var(--ink); }
 .debrief-cases { margin: 2px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-dim); }
 .debrief-cases li { margin: 3px 0; }
+.debrief-sample { margin: 2px 0 0; padding: 6px 10px; border: 1px dashed var(--ok); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 13px; }
 
 /* ---- 榜 · 观星台 ---- */
 
