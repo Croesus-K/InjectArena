@@ -9,9 +9,9 @@ const { validate } = require('../src/jsonschema.js');
 
 const ROOT = path.join(__dirname, '..');
 
-test('levels/ 全部关卡通过 schema 校验且为 L1-L5', () => {
+test('levels/ 全部关卡通过 schema 校验且为 L1-L6', () => {
   const levels = loadLevels(path.join(ROOT, 'levels'));
-  assert.deepEqual(levels.map((l) => l.id), ['L1', 'L2', 'L3', 'L4', 'L5']);
+  assert.deepEqual(levels.map((l) => l.id), ['L1', 'L2', 'L3', 'L4', 'L5', 'L6']);
   for (const lv of levels) {
     assert.ok(lv.systemPrompt.length >= 20);
     assert.ok(lv.flagCriteria);
@@ -41,6 +41,14 @@ test('levels/ 全部关卡通过 schema 校验且为 L1-L5', () => {
   assert.equal(l5.tools.length, 1);
   assert.equal(l5.tools[0].name, 'send_report');
   assert.equal(l5.knowledgeBase, undefined, 'L5 无文书柜');
+
+  const l6 = levels.find((l) => l.id === 'L6');
+  assert.equal(l6.attackSurface, 'mcp-poisoning');
+  assert.equal(l6.difficulty, 6);
+  assert.equal(l6.toolLoop, true, 'L6 开启有界代理循环（工具结果回流）');
+  assert.equal(l6.tools.length, 2);
+  assert.equal(l6.tools.some((t) => t.result && t.result.includes('机关维护标记')), true, '验印机关回执带毒（攻击面所在）');
+  assert.equal(l6.knowledgeBase, undefined, 'L6 无文书柜');
 });
 
 test('publicLevel 视图绝不包含 systemPrompt 与 secret', () => {
@@ -59,7 +67,7 @@ test('publicLevel 视图绝不包含 systemPrompt 与 secret', () => {
 
 test('corpus/ 语料库通过 schema 校验', () => {
   const corpora = loadCorpus();
-  assert.deepEqual(corpora.map((c) => c.id), ['data-exfiltration', 'direct-injection', 'indirect-injection', 'tool-abuse']);
+  assert.deepEqual(corpora.map((c) => c.id), ['data-exfiltration', 'direct-injection', 'indirect-injection', 'mcp-abuse', 'tool-abuse']);
 });
 
 test('语料库规模与质量约束：直接注入 ≥50、数据窃取 ≥15、间接注入 ≥20、工具滥用 ≥15、id 唯一、中英混合', () => {
@@ -73,6 +81,8 @@ test('语料库规模与质量约束：直接注入 ≥50、数据窃取 ≥15�
     '间接注入语料至少 20 条（当前 ' + byId.get('indirect-injection').payloads.length + '）');
   assert.ok(byId.get('tool-abuse').payloads.length >= 15,
     '工具滥用语料至少 15 条（当前 ' + byId.get('tool-abuse').payloads.length + '）');
+  assert.ok(byId.get('mcp-abuse').payloads.length >= 15,
+    'MCP 投毒语料至少 15 条（当前 ' + byId.get('mcp-abuse').payloads.length + '）');
 
   const payloads = flattenCorpus(corpora);
   assert.ok(payloads.length >= 100, '语料总量至少 100 条（当前 ' + payloads.length + '）');

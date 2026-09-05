@@ -9,9 +9,9 @@
     "name": { "type": "string", "minLength": 2, "maxLength": 12 },
     "attackSurface": {
       "type": "string",
-      "enum": ["direct-injection", "data-exfiltration", "guarded-prompt", "indirect-injection", "tool-abuse"]
+      "enum": ["direct-injection", "data-exfiltration", "guarded-prompt", "indirect-injection", "tool-abuse", "mcp-poisoning"]
     },
-    "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "difficulty": { "type": "integer", "minimum": 1, "maximum": 6 },
     "brief": { "type": "string", "minLength": 8, "maxLength": 500 },
     "defenseBrief": { "type": "string", "minLength": 8, "maxLength": 500 },
     "hints": {
@@ -21,6 +21,7 @@
     },
     "systemPrompt": { "type": "string", "minLength": 20, "maxLength": 4000 },
     "model": { "type": "string", "minLength": 3, "maxLength": 120 },
+    "toolLoop": { "type": "boolean" },
     "debrief": {
       "type": "object",
       "required": ["principle", "cases", "owasp", "defense", "defenseSample"],
@@ -54,7 +55,8 @@
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,39}$" },
           "description": { "type": "string", "minLength": 4, "maxLength": 300 },
-          "parameters": { "type": "object" }
+          "parameters": { "type": "object" },
+          "result": { "type": "string", "minLength": 1, "maxLength": 1200 }
         }
       }
     },

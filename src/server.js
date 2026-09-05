@@ -228,12 +228,14 @@ function buildServer(config, deps) {
           judge,
           history: messages,
           executeTool: (name, args) => {
-            // 模拟工具执行：只落审计账、不真外发（send_report 是虚构渠道）
+            // 模拟工具执行：只落审计账、不真外发（send_report 是虚构渠道）；
+            // L6 类关卡的工具在定义里带 result 模板（机关回执，可含投毒文本——那是攻击面本身）
             insertAudit(db, {
               ts: new Date().toISOString(), ip, route: 'tool', levelId: level.id,
               payloadChars: JSON.stringify(args || {}).length, outcome: 'tool-call', detail: name
             });
-            return { record: { sent: true }, result: '报告已送达。' };
+            const def = (Array.isArray(level.tools) ? level.tools : []).find((t) => t.name === name);
+            return { record: { sent: true }, result: (def && def.result) || '已执行。' };
           }
         });
       } else {
