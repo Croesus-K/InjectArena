@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -32,14 +33,20 @@ jobs:
         run: docker build -t injectarena:ci .
 
   docker-publish:
-    # 主分支推送即发布镜像到 GHCR（VWAD 条目的 docker 引用指向这里）
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # 主分支推送或版本标签（v*）推送即发布多架构镜像到 GHCR（VWAD 条目的 docker 引用指向这里）
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -58,6 +65,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
