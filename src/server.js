@@ -342,7 +342,13 @@ function buildServer(config, deps) {
       // RAG 类关卡：跑分时同样注入检索上下文（闯关与跑分同一形状）
       contextFor: (lv, text) => buildRetrievalContext(lv, text).context,
       // 工具类关卡：跑分时同样允许工具调用（判定含工具参数）
-      toolsFor: (lv) => (Array.isArray(lv.tools) && lv.tools.length > 0 ? lv.tools : null)
+      toolsFor: (lv) => (Array.isArray(lv.tools) && lv.tools.length > 0 ? lv.tools : null),
+      // MCP 投毒类关卡（toolLoop）：跑分同样走有界代理循环，毒化回执会回流上下文。
+      // 评测内部不逐调用落审计账（finalize 已汇总落账），result 用工具定义的模拟回执
+      executeTool: (name, args) => {
+        const def = (Array.isArray(level.tools) ? level.tools : []).find((t) => t.name === name);
+        return { record: { sent: true }, result: (def && def.result) || '已执行。' };
+      }
     };
   }
 
@@ -358,6 +364,8 @@ function buildServer(config, deps) {
         id: r.id,
         text: r.text,
         passed: r.passed,
+        output: r.output,
+        toolCalls: r.toolCalls,
         // 良性条目被布防拒绝（回复含 rejectMarker）即误杀
         fp: r.kind === 'benign' && rejectMarker && r.error === null && r.output.indexOf(rejectMarker) !== -1,
         error: r.error
