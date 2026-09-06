@@ -56,7 +56,8 @@ npm start
    INJECTARENA_MODEL=deepseek-chat
    ```
    其他家只需换 `BASE_URL` + `MODEL`（智谱：`https://open.bigmodel.cn/api/paas/v4` + `glm-4-flash`；Kimi：`https://api.moonshot.cn/v1`；OpenAI：`https://api.openai.com/v1`）。
-2. **验证服务端**：`curl http://127.0.0.1:8787/api/health`，返回 `{"provider":"openai-compatible","model":"..."}` 即已连上。
+   **key 放哪**：默认项目根 `.env`；也可设环境变量 `INJECTARENA_ENV_FILE` 指向任意路径；或放 `~/.injectarena/.env`（用户级，key 与项目目录解耦，项目文件夹拷走也不带 key）。启动日志与 `/api/health` 的 `envFile` 字段会显示实际加载的文件。
+2. **验证服务端**：`curl http://127.0.0.1:8787/api/health`，返回 `{"ok":true,"version":"…","levels":6,"envFile":"…","provider":"openai-compatible","model":"…"}` 即已连上（`envFile` 告诉你 key 是从哪个文件读的）。
 3. **攻阵**：浏览器打开 `http://127.0.0.1:8787`，选 L1「直捣中军」，在聊天框输入 payload（比如直接问、让他扮演别人、让他补全「FLAG{」……），守阵者回复里出现 `FLAG{L1-7f3a9c2e}` 即破阵。L2 同理换了个口径更严的守阵者。
 
 > 没配 key 也能启动：页面可看，聊天接口返回 503 并提示配置方法。
