@@ -48,7 +48,7 @@ jobs:
         with:
           node-version: '20'
       - name: 构建 prompt-audit 并接入判定包
-        run: cd .prompt-audit-src && npm ci && npm install ../injectarena-judge && npm run build
+        run: cd .prompt-audit-src && npm ci && npm install ../.injectarena-judge && npm run build
       - name: 检查 BYOK 配置（回归是真实 LLM 调用）
         id: byok
         env:
