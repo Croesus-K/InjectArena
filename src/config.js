@@ -6,6 +6,8 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 /**
  * 读取 .env 到 process.env（已存在的环境变量优先，不被覆盖）。
@@ -36,6 +38,36 @@ function loadDotEnv(file) {
 }
 
 /**
+ * 解析 env 文件路径：按顺序取第一个存在的文件（顺序即优先级）。
+ * 1. INJECTARENA_ENV_FILE 显式指定——指定的文件不存在时打警告（显式配置静默消失最坑人）
+ * 2. <projectRoot>/.env ——历史行为，向后兼容
+ * 3. <home>/.injectarena/.env ——用户级：key 与项目目录解耦，项目文件夹拷走也不带 key
+ * @param {object} [env] 环境变量源（默认 process.env，测试可注入）
+ * @param {string} [projectRoot] 项目根（默认本模块上一级）
+ * @param {string} [home] 用户主目录（默认 os.homedir()，测试可注入）
+ * @returns {{file: string|null, source: 'explicit'|'project'|'user'|null}}
+ */
+function resolveEnvFile(env, projectRoot, home) {
+  const e = env || process.env;
+  const root = projectRoot || path.resolve(__dirname, '..');
+  const userHome = home || os.homedir();
+  const explicit = e.INJECTARENA_ENV_FILE;
+  if (explicit) {
+    if (fs.existsSync(explicit)) return { file: explicit, source: 'explicit' };
+    process.stderr.write('[injectarena] INJECTARENA_ENV_FILE 指定的文件不存在，忽略: ' + explicit + '\n');
+    return { file: null, source: null };
+  }
+  const candidates = [
+    ['project', path.join(root, '.env')],
+    ['user', path.join(userHome, '.injectarena', '.env')]
+  ];
+  for (const [source, file] of candidates) {
+    if (fs.existsSync(file)) return { file, source };
+  }
+  return { file: null, source: null };
+}
+
+/**
  * @param {object} [env] 环境变量源（默认 process.env，测试可注入）
  */
 function loadConfig(env) {
@@ -62,4 +94,4 @@ function loadConfig(env) {
   };
 }
 
-module.exports = { loadConfig, loadDotEnv };
+module.exports = { loadConfig, loadDotEnv, resolveEnvFile };

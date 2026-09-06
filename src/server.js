@@ -25,7 +25,7 @@ const { runAgentTurn } = require('./agentRunner.js');
 const { buildRetrievalContext } = require('./retriever.js');
 const { openAuditDb, insertAudit, maskIp, upsertBreachRecord, upsertDefenseRecord, listBreachRecords, listBreachRecordsFull, listDefenseRecords } = require('./db.js');
 const { createProviderRegistry } = require('./provider/index.js');
-const { loadConfig, loadDotEnv } = require('./config.js');
+const { loadConfig, loadDotEnv, resolveEnvFile } = require('./config.js');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 // 数据目录：固定的服务端路径（编译期常量），与任何请求输入无关
@@ -143,6 +143,7 @@ function buildServer(config, deps) {
     ok: true,
     version: require('../package.json').version,
     levels: levels.length,
+    envFile: config.envFile || null,
     provider: providerReady ? 'openai-compatible' : null,
     model: hasInjected ? (d.provider ? d.provider.model : null) : (config.model || null)
   }));
@@ -547,12 +548,15 @@ function buildServer(config, deps) {
 }
 
 function start() {
-  loadDotEnv(path.join(__dirname, '..', '.env'));
+  const envResolved = resolveEnvFile();
+  loadDotEnv(envResolved.file);
   const config = loadConfig();
+  config.envFile = envResolved.file;
   const app = buildServer(config);
   app.listen({ port: config.port, host: config.host }, (err) => {
     if (err) throw err;
     process.stdout.write('攻心 InjectArena 已开阵：http://' + config.host + ':' + config.port + '\n');
+    process.stdout.write('配置文件：' + (config.envFile || '未使用文件（纯环境变量启动）') + '\n');
     if (!config.apiKey) {
       process.stdout.write('提示：尚未配置 INJECTARENA_API_KEY，聊天接口将返回 503（BYOK 见 README）。\n');
     }
