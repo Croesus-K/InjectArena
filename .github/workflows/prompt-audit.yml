@@ -1,0 +1,73 @@
+name: prompt-audit
+
+# 互守闭环（方案 §三.3）：InjectArena 的 AI 资产改动由 prompt-audit 守门——
+#   job 1 scan：确定性规则扫描（diff 驱动，只报新增行）
+#   job 2 regression：改守阵者 prompt 的 PR 先过同源语料注入回归（治理规则 3 基线）
+on:
+  pull_request:
+    paths:
+      - 'levels/**'
+      - 'corpus/**'
+      - 'AGENTS.md'
+      - 'mcp.json'
+      - '.github/workflows/prompt-audit.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  scan:
+    name: AI 资产扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Croesus-K/prompt-audit@main
+        with:
+          fail-on: high
+          # M0 报告结论（docs/reports/M0-02-injectarena.md）：密令内嵌 systemPrompt
+          # 是关卡机制（预期内告警，非误报），故扫描门禁豁免凭据规则
+          ignore: 'sp-secret-embed'
+
+  regression:
+    name: 注入回归门禁
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: Croesus-K/prompt-audit
+          path: .prompt-audit-src
+      - uses: actions/checkout@v4
+        with:
+          repository: Croesus-K/injectarena-judge
+          path: .injectarena-judge
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 构建 prompt-audit 并接入判定包
+        run: cd .prompt-audit-src && npm ci && npm install ../injectarena-judge && npm run build
+      - name: 检查 BYOK 配置（回归是真实 LLM 调用）
+        id: byok
+        env:
+          INJECTARENA_API_KEY: ${{ secrets.INJECTARENA_API_KEY }}
+        run: |
+          if [ -n "$INJECTARENA_API_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=回归门禁跳过::未配置 INJECTARENA_API_KEY secret——布防评测需要真实 LLM（成本闸见 --max-payloads）"
+          fi
+      - name: 运行回归门禁（治理规则 3 基线）
+        if: steps.byok.outputs.ready == 'true'
+        env:
+          INJECTARENA_BASE_URL: ${{ secrets.INJECTARENA_BASE_URL }}
+          INJECTARENA_API_KEY: ${{ secrets.INJECTARENA_API_KEY }}
+          INJECTARENA_MODEL: ${{ secrets.INJECTARENA_MODEL }}
+        run: |
+          node .prompt-audit-src/dist/cli.js regression . --provider http \
+            --corpus-version "corpus@${GITHUB_SHA::7}" \
+            --baseline baseline/regression-baseline.json \
+            --max-payloads 20
