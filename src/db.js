@@ -121,6 +121,16 @@ function listBreachRecords(db, limit) {
     .all(limit || 50);
 }
 
+/**
+ * 导出用完整破阵记录（含 payload 明文）：只服务 /api/leaderboard?format=export
+ * 这一条显式导出通道（语料回流走公开接口，治理规则 2）；默认榜单视图永远不带 payload_text。
+ */
+function listBreachRecordsFull(db, limit) {
+  return db
+    .prepare('SELECT level_id AS levelId, player, chars, tokens, payload_text AS payloadText, ts FROM breach_records ORDER BY level_id ASC, chars ASC, id ASC LIMIT ?')
+    .all(limit || 200);
+}
+
 /** 段位榜：按关卡分组、拦截率降序（同率样本大者优先）。 */
 function listDefenseRecords(db, limit) {
   return db
@@ -128,4 +138,4 @@ function listDefenseRecords(db, limit) {
     .all(limit || 50);
 }
 
-module.exports = { openAuditDb, insertAudit, listAudit, maskIp, upsertBreachRecord, upsertDefenseRecord, listBreachRecords, listDefenseRecords };
+module.exports = { openAuditDb, insertAudit, listAudit, maskIp, upsertBreachRecord, upsertDefenseRecord, listBreachRecords, listBreachRecordsFull, listDefenseRecords };
