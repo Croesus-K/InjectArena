@@ -108,6 +108,8 @@ function buildServer(config, deps) {
   const corpora = d.corpora || loadCorpus();
   const limiter = d.rateLimiter || new TokenBucketLimiter(config.chatRate);
   const defenseLimiter = d.defenseRateLimiter || new TokenBucketLimiter(config.defenseRate);
+  // 导出通道独立限流（SEC 自查）：payload 明文单次可达 500 行，公开 GET 不设防会被刷
+  const exportLimiter = d.exportRateLimiter || new TokenBucketLimiter({ capacity: 5, refillPerMinute: 5 });
   const db = d.db || openAuditDb(config.dbPath);
 
   // 本阵最短破阵纪录：直接从两榜存储读取（每关第一条 = 字符最短者）
@@ -157,8 +159,15 @@ function buildServer(config, deps) {
   // 且 flag 形状令牌在源头确定性打码——回流管道的「脱敏（flag 替换）」前移到导出处执行。
   const EXPORT_LIMIT_MAX = 500;
   const redactFlagTokens = (s) => s.replace(/FLAG\{[^}]*\}/g, 'FLAG{REDACTED}');
-  app.get('/api/leaderboard', async (req) => {
+  app.get('/api/leaderboard', async (req, reply) => {
     if (req.query && req.query.format === 'export') {
+      const ip = req.ip || 'unknown';
+      const rl = exportLimiter.check('export:' + ip);
+      if (!rl.allowed) {
+        reply.code(429).header('retry-after', String(rl.retryAfterSeconds));
+        insertAudit(db, { ts: new Date().toISOString(), ip, route: 'leaderboard-export', outcome: 'rate-limited' });
+        return { error: '导出太密，' + rl.retryAfterSeconds + ' 秒后再来（每周回流管道只需一次）。' };
+      }
       const limitRaw = Number(req.query.limit);
       const limit = Number.isFinite(limitRaw) && limitRaw > 0
         ? Math.min(Math.floor(limitRaw), EXPORT_LIMIT_MAX)

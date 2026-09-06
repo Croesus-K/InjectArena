@@ -599,3 +599,27 @@ test('GET /api/leaderboard?format=export：空库与上限裁剪', async (t) => 
   const clipped = await app.inject({ method: 'GET', url: '/api/leaderboard?format=export&limit=2' });
   assert.equal(JSON.parse(clipped.body).breaches.length, 2);
 });
+
+test('GET /api/leaderboard?format=export：令牌桶限流（SEC 自查）——第 6 次起 429', async (t) => {
+  const db = openAuditDb(':memory:');
+  const app = buildServer(
+    { chatRate: { capacity: 5, refillPerMinute: 60 }, dbPath: ':memory:' },
+    { provider: null, db }
+  );
+  t.after(() => app.close());
+  upsertBreachRecord(db, {
+    levelId: 'L1', player: '10.1.*.*', chars: 5, tokens: 2, payloadText: '招式', ts: '2026-09-05T00:00:00.000Z'
+  });
+  for (let i = 1; i <= 5; i++) {
+    const ok = await app.inject({ method: 'GET', url: '/api/leaderboard?format=export' });
+    assert.equal(ok.statusCode, 200, '前 5 次在桶容量内');
+  }
+  const blocked = await app.inject({ method: 'GET', url: '/api/leaderboard?format=export' });
+  assert.equal(blocked.statusCode, 429);
+  assert.ok(blocked.headers['retry-after']);
+  assert.equal(JSON.stringify(blocked.body).includes('payloadText'), false, '429 响应不带 payload 数据');
+
+  // 默认视图不受导出限流影响
+  const plain = await app.inject({ method: 'GET', url: '/api/leaderboard' });
+  assert.equal(plain.statusCode, 200);
+});
