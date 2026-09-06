@@ -23,7 +23,7 @@ const { loadCorpus, flattenCorpus } = require('./corpus.js');
 const { evaluateDefense } = require('./defenseEvaluator.js');
 const { runAgentTurn } = require('./agentRunner.js');
 const { buildRetrievalContext } = require('./retriever.js');
-const { openAuditDb, insertAudit, maskIp, upsertBreachRecord, upsertDefenseRecord, listBreachRecords, listDefenseRecords } = require('./db.js');
+const { openAuditDb, insertAudit, maskIp, upsertBreachRecord, upsertDefenseRecord, listBreachRecords, listBreachRecordsFull, listDefenseRecords } = require('./db.js');
 const { createProviderRegistry } = require('./provider/index.js');
 const { loadConfig, loadDotEnv } = require('./config.js');
 
@@ -108,6 +108,8 @@ function buildServer(config, deps) {
   const corpora = d.corpora || loadCorpus();
   const limiter = d.rateLimiter || new TokenBucketLimiter(config.chatRate);
   const defenseLimiter = d.defenseRateLimiter || new TokenBucketLimiter(config.defenseRate);
+  // 导出通道独立限流（SEC 自查）：payload 明文单次可达 500 行，公开 GET 不设防会被刷
+  const exportLimiter = d.exportRateLimiter || new TokenBucketLimiter({ capacity: 5, refillPerMinute: 5 });
   const db = d.db || openAuditDb(config.dbPath);
 
   // 本阵最短破阵纪录：直接从两榜存储读取（每关第一条 = 字符最短者）
@@ -152,10 +154,41 @@ function buildServer(config, deps) {
 
   // 两榜（公开）：名将榜 = 最短破阵纪录；段位榜 = 最佳拦截率考段。
   // player 是打码 IP，payload_text 是破阵者自己的招式（名将榜的展示核心）；无 secret。
-  app.get('/api/leaderboard', async () => ({
-    attack: listBreachRecords(db, 100),
-    defense: listDefenseRecords(db, 100)
-  }));
+  // 默认视图不含 payload 明文；?format=export 是语料回流（prompt-audit）的显式导出通道
+  //（治理规则 2：回流只走公开接口）：带 attackSurface 映射、payload 明文、条数上限，
+  // 且 flag 形状令牌在源头确定性打码——回流管道的「脱敏（flag 替换）」前移到导出处执行。
+  const EXPORT_LIMIT_MAX = 500;
+  const redactFlagTokens = (s) => s.replace(/FLAG\{[^}]*\}/g, 'FLAG{REDACTED}');
+  app.get('/api/leaderboard', async (req, reply) => {
+    if (req.query && req.query.format === 'export') {
+      const ip = req.ip || 'unknown';
+      const rl = exportLimiter.check('export:' + ip);
+      if (!rl.allowed) {
+        reply.code(429).header('retry-after', String(rl.retryAfterSeconds));
+        insertAudit(db, { ts: new Date().toISOString(), ip, route: 'leaderboard-export', outcome: 'rate-limited' });
+        return { error: '导出太密，' + rl.retryAfterSeconds + ' 秒后再来（每周回流管道只需一次）。' };
+      }
+      const limitRaw = Number(req.query.limit);
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.min(Math.floor(limitRaw), EXPORT_LIMIT_MAX)
+        : EXPORT_LIMIT_MAX;
+      return {
+        format: 'injectarena-export@1',
+        exportedAt: new Date().toISOString(),
+        redacted: true,
+        breaches: listBreachRecordsFull(db, limit).map((r) => ({
+          ...r,
+          attackSurface: (levelById.get(r.levelId) || {}).attackSurface || null,
+          payloadText: redactFlagTokens(r.payloadText)
+        })),
+        defense: listDefenseRecords(db, limit)
+      };
+    }
+    return {
+      attack: listBreachRecords(db, 100),
+      defense: listDefenseRecords(db, 100)
+    };
+  });
 
   app.post('/api/levels/:id/chat', async (req, reply) => {
     const level = levelById.get(req.params.id);
