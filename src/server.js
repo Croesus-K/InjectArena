@@ -141,6 +141,8 @@ function buildServer(config, deps) {
 
   app.get('/api/health', async () => ({
     ok: true,
+    version: require('../package.json').version,
+    levels: levels.length,
     provider: providerReady ? 'openai-compatible' : null,
     model: hasInjected ? (d.provider ? d.provider.model : null) : (config.model || null)
   }));
