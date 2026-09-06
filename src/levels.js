@@ -58,6 +58,8 @@ function publicLevel(level, defaultModel) {
     brief: level.brief,
     defenseBrief: level.defenseBrief,
     hints: level.hints || [],
+    // 布防模板库（守方教学，无敏感内容）：前端一键套用进布防插槽
+    defenseTemplates: Array.isArray(level.defenseTemplates) ? level.defenseTemplates : [],
     hasGuard: Boolean(level.guard),
     model: level.model || defaultModel || null,
     tools: Array.isArray(level.tools) ? level.tools.map((t) => ({ name: t.name, description: t.description })) : [],

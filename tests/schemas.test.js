@@ -19,6 +19,7 @@ test('levels/ 全部关卡通过 schema 校验且为 L1-L6', () => {
     assert.ok(lv.debrief.owasp.length >= 1, '复盘须映射 OWASP LLM Top 10');
     assert.ok(lv.debrief.cases.length >= 2, '复盘须有真实案例');
     assert.ok(lv.debrief.defenseSample && lv.debrief.defenseSample.length >= 40, '复盘须附可直接粘贴的布防参考');
+    assert.ok(Array.isArray(lv.defenseTemplates) && lv.defenseTemplates.length >= 3, '每关至少 3 个布防模板（一键套用库）');
     if (lv.id === 'L1' || lv.id === 'L2' || lv.id === 'L4') {
       assert.equal(lv.guard, null, 'L1/L2/L4 不带关键词防护，guard 必须显式为 null');
     }

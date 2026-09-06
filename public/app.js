@@ -43,7 +43,8 @@
     defenseRun: document.getElementById('defense-run'),
     defenseStatus: document.getElementById('defense-status'),
     defenseReport: document.getElementById('defense-report'),
-    defenseLimit: document.getElementById('defense-limit')
+    defenseLimit: document.getElementById('defense-limit'),
+    defenseTemplates: document.getElementById('defense-templates')
   };
 
   var SURFACE_NAMES = {
@@ -120,12 +121,45 @@
     renderRecord();
     var lv = currentLevel();
     el.defenseLevelName.textContent = lv ? lv.id + ' · ' + lv.name : '';
+    renderDefenseTemplates();
     // 已破过的阵：军师提示下方常驻复盘（默认收起）
     if (lv && state.records[id]) {
       var node = debriefElement(lv, false);
       if (node) el.levelHead.appendChild(node);
     }
     el.input.focus();
+  }
+
+  /* ---------- 守侧：布防模板库（一键套用） ---------- */
+
+  function renderDefenseTemplates() {
+    var lv = currentLevel();
+    var tpls = (lv && lv.defenseTemplates) || [];
+    el.defenseTemplates.innerHTML = '';
+    if (!tpls.length) {
+      el.defenseTemplates.hidden = true;
+      return;
+    }
+    el.defenseTemplates.hidden = false;
+    var label = document.createElement('span');
+    label.className = 'defense-templates-label';
+    label.textContent = '布防模板 · 一键套用：';
+    el.defenseTemplates.appendChild(label);
+    tpls.forEach(function (t) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'tpl-chip';
+      chip.textContent = t.label;
+      if (t.desc) chip.title = t.desc;
+      chip.addEventListener('click', function () {
+        el.defensePrompt.value = t.prompt;
+        var chips = el.defenseTemplates.querySelectorAll('.tpl-chip');
+        for (var i = 0; i < chips.length; i++) chips[i].classList.remove('active');
+        chip.classList.add('active');
+        el.defenseStatus.textContent = '已套用模板「' + t.label + '」——可直接开考，或在其基础上再编辑。';
+      });
+      el.defenseTemplates.appendChild(chip);
+    });
   }
 
   /* ---------- 模式切换 ---------- */
