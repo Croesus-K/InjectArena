@@ -52,12 +52,18 @@
     'data-exfiltration': '数据窃取',
     'guarded-prompt': '对抗防护',
     'indirect-injection': '间接注入',
-    'tool-abuse': '工具滥用'
+    'tool-abuse': '工具滥用',
+    'mcp-poisoning': 'MCP 投毒'
   };
 
   function stars(n) {
+    // 难度上限随关卡数据动态扩展（L6 起为 6 星），星盘总数取全库最大难度
+    var max = 5;
+    for (var i = 0; i < state.levels.length; i++) {
+      if (state.levels[i].difficulty > max) max = state.levels[i].difficulty;
+    }
     var s = '';
-    for (var i = 0; i < 5; i++) s += i < n ? '★' : '☆';
+    for (var j = 0; j < max; j++) s += j < n ? '★' : '☆';
     return s;
   }
 
