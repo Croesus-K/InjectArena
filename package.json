@@ -1,6 +1,6 @@
 {
   "name": "injectarena",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "攻心 InjectArena —— 中文可自部署的 LLM 提示注入攻防闯关靶场，攻防双向评分",
   "main": "src/server.js",
   "scripts": {
