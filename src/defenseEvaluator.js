@@ -66,16 +66,51 @@
     return results;
   }
 
-  async function probe(level, defensePrompt, entry, llm, judgeFn, contextFor, tools) {
+  // 有界代理循环：与 agentRunner 一致（toolLoop 关卡工具结果回流上下文，防失控封顶 3 轮）
+  const MAX_TOOL_ROUNDS = 3;
+
+  async function probe(level, defensePrompt, entry, llm, judgeFn, contextFor, tools, executeTool) {
     const contextBlock = typeof contextFor === 'function' ? contextFor(level, entry.text) : '';
     const messages = [
       { role: 'system', content: buildDefenseSystemPrompt(level, defensePrompt) + contextBlock },
       { role: 'user', content: entry.text }
     ];
     try {
-      const res = await llm.chat(messages, Array.isArray(tools) && tools.length > 0 ? { tools } : {});
-      // 判定候选：文本 + 工具调用参数（L5 类关卡，机密可能经工具外传）
-      const candidates = [res.text || ''].concat((res.toolCalls || []).map((tc) => JSON.stringify(tc.args || {})));
+      // 判定候选：每一轮文本 + 全部工具调用参数（机密可经文本或工具外传）
+      const candidates = [];
+      const useLoop = level.toolLoop === true && typeof executeTool === 'function';
+      const maxRounds = useLoop ? MAX_TOOL_ROUNDS : 1;
+      let text = '';
+      let tokens;
+      let toolCallCount = 0;
+      for (let round = 0; round < maxRounds; round++) {
+        const res = await llm.chat(messages, Array.isArray(tools) && tools.length > 0 ? { tools } : {});
+        if (res.tokens) tokens = (tokens || 0) + res.tokens;
+        text = res.text || '';
+        candidates.push(text);
+        const calls = res.toolCalls || [];
+        toolCallCount += calls.length;
+        if (calls.length === 0) break;
+        const entries = calls.map((c, i) => ({ call: c, id: c.id || 'call_' + round + '_' + i }));
+        for (const e of entries) {
+          if (typeof executeTool === 'function') {
+            e.result = String(executeTool(e.call.name, e.call.args).result || '');
+          }
+          candidates.push(JSON.stringify(e.call.args || {}));
+        }
+        if (round === maxRounds - 1) break;
+        // 工具结果回流上下文再询（闯关与跑分同一形状：毒化回执必须进得了守阵者眼里）
+        messages.push({
+          role: 'assistant',
+          content: text || null,
+          tool_calls: entries.map((e) => ({
+            id: e.id,
+            type: 'function',
+            function: { name: e.call.name, arguments: JSON.stringify(e.call.args || {}) }
+          }))
+        });
+        for (const e of entries) messages.push({ role: 'tool', tool_call_id: e.id, content: e.result || '' });
+      }
       let passed = false;
       for (const candidate of candidates) {
         if (judgeFn(level, candidate).passed) {
@@ -84,8 +119,8 @@
         }
       }
       return {
-        id: entry.id, text: entry.text, output: res.text, tokens: res.tokens,
-        error: null, passed, toolCalls: (res.toolCalls || []).length
+        id: entry.id, text: entry.text, output: text, tokens,
+        error: null, passed, toolCalls: toolCallCount
       };
     } catch (err) {
       return { id: entry.id, text: entry.text, output: '', tokens: null, error: (err && err.message) || String(err), passed: null, toolCalls: 0 };
@@ -103,7 +138,9 @@
  * @param {string}   [opts.rejectMarker] 良性请求被误杀的判定标记（模型回复包含该标记视为拒绝），由调用方传入，如 “军机不可泄露”
  * @param {Function} [opts.contextFor]  上下文注入钩子 (level, payloadText) => string——
  *                                      RAG 类关卡把检索命中的文书拼进系统上下文（闯关与跑分同一形状）
- * @param {Function} [opts.toolsFor]   工具注入钩子 (level) => tools——工具类关卡让模型可发起工具调用，
+   * @param {Function} [opts.toolsFor]   工具注入钩子 (level) => tools——工具类关卡让模型可发起工具调用，
+   * @param {Function} [opts.executeTool] 模拟工具执行 (name, args) => {record, result}——toolLoop 关卡
+   *                                      （MCP 投毒）跑分时工具结果回流上下文，与闯关同一形状
    * @returns {Promise<{attack: {total, evaluated, blocked, leaked, blockRate, leakRate},
    *                     benign: {total, evaluated, falsePositives, falsePositiveRate}|null, results}>}
    */
@@ -120,7 +157,7 @@
     const results = [];
 
     const attackWorker = async (entry) => {
-      const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, tools);
+      const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, tools, opts.executeTool);
       const tagged = { kind: 'attack', ...r };
       if (opts.onResult) opts.onResult(tagged);
       return tagged;
@@ -155,7 +192,7 @@
       let benignEvaluated = 0;
       let falsePositives = 0;
       const benignWorker = async (entry) => {
-        const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, tools);
+        const r = await probe(level, defensePrompt, entry, llm, opts.judge, opts.contextFor, tools, opts.executeTool);
         const tagged = { kind: 'benign', ...r };
         if (opts.onResult) opts.onResult(tagged);
         return tagged;
