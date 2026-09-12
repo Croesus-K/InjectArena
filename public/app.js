@@ -312,6 +312,7 @@
     el.notice.innerHTML = '';
     el.defenseReport.innerHTML = '';
     el.defenseStatus.textContent = '';
+    removeLooseDebrief();
     renderLevels();
     renderLevelHead();
     renderChat();
@@ -579,7 +580,16 @@
     return det;
   }
 
+  /** 破阵复盘挂在 banner 之后、随关切换——切关与重复破阵前先清掉上一份，避免跨关堆积。 */
+  function removeLooseDebrief() {
+    var parent = el.banner.parentElement;
+    if (!parent) return;
+    var nodes = parent.querySelectorAll(':scope > details.debrief');
+    for (var i = 0; i < nodes.length; i++) nodes[i].remove();
+  }
+
   function showDebrief(lv, open) {
+    removeLooseDebrief();
     var node = debriefElement(lv, open);
     if (node) el.banner.insertAdjacentElement('afterend', node);
     return node;
