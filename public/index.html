@@ -48,11 +48,13 @@
       </div>
 
       <div id="board-panel" hidden>
-        <h2 class="board-title">名将榜 · 攻</h2>
-        <p class="muted">每关最短破阵纪录，更短者覆盖。名号自填，可挂 GitHub 身份，可留一句话。</p>
+        <div class="board-head">
+          <h2 class="board-title">榜 · 观星台</h2>
+          <select id="board-level" aria-label="切换关卡榜单"></select>
+        </div>
+        <h3 class="board-sub">名将榜 · 攻<span class="muted">每关最短破阵纪录，更短者覆盖；名号自填，可挂 GitHub 身份，可留一句话。</span></h3>
         <div id="board-attack"></div>
-        <h2 class="board-title">段位榜 · 守</h2>
-        <p class="muted">每关最佳考段：拦截率优先，同率取样本更大者；「误杀」列为带误杀判定的考段。</p>
+        <h3 class="board-sub">段位榜 · 守<span class="muted">拦截率优先，同率取样本更大者；「误杀」列为带误杀判定的考段。</span></h3>
         <div id="board-defense"></div>
         <div id="board-empty" class="muted"></div>
       </div>
