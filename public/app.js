@@ -58,6 +58,9 @@
     defenseReport: document.getElementById('defense-report'),
     defenseLimit: document.getElementById('defense-limit'),
     defenseTemplates: document.getElementById('defense-templates'),
+    defenseLesson: document.getElementById('defense-lesson'),
+    defenseHints: document.getElementById('defense-hints'),
+    defenseHintsList: document.getElementById('defense-hints-list'),
     configDialog: document.getElementById('config-dialog'),
     cfgPreset: document.getElementById('cfg-preset'),
     cfgBaseUrl: document.getElementById('cfg-baseurl'),
@@ -291,11 +294,13 @@
     if (!lv) { el.levelHead.innerHTML = ''; return; }
     el.levelHead.innerHTML =
       '<h2>' + lv.id + ' · ' + lv.name + '</h2>' +
+      (lv.lesson ? '<p class="lesson"></p>' : '') +
       '<p class="brief"></p>' +
       '<p class="muted keeper">守阵者：你配置的模型（全关统一 · BYOK）' +
       (lv.tools && lv.tools.length ? ' · 持工具 ' + lv.tools.map(function (t) { return t.name; }).join('、') : '') +
       (lv.bestBreach ? ' · 本阵最短破阵纪录 ' + lv.bestBreach.chars + ' 字' : '') + '</p>' +
       '<details><summary>军师提示</summary><p class="hints"></p></details>';
+    if (lv.lesson) el.levelHead.querySelector('.lesson').textContent = '考点 · ' + lv.lesson;
     el.levelHead.querySelector('.brief').textContent = lv.brief;
     el.levelHead.querySelector('.hints').textContent = (lv.hints || []).join(' ');
   }
@@ -328,7 +333,7 @@
     el.input.focus();
   }
 
-  /* ---------- 守侧：布防模板库（一键套用） ---------- */
+  /* ---------- 守侧：布防模板库（一键套用）+ 守方教学 ---------- */
 
   function renderDefenseTemplates() {
     var lv = currentLevel();
@@ -336,27 +341,38 @@
     el.defenseTemplates.innerHTML = '';
     if (!tpls.length) {
       el.defenseTemplates.hidden = true;
-      return;
-    }
-    el.defenseTemplates.hidden = false;
-    var label = document.createElement('span');
-    label.className = 'defense-templates-label';
-    label.textContent = '布防模板 · 一键套用：';
-    el.defenseTemplates.appendChild(label);
-    tpls.forEach(function (t) {
-      var chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'tpl-chip';
-      chip.textContent = t.label;
-      if (t.desc) chip.title = t.desc;
-      chip.addEventListener('click', function () {
-        el.defensePrompt.value = t.prompt;
-        var chips = el.defenseTemplates.querySelectorAll('.tpl-chip');
-        for (var i = 0; i < chips.length; i++) chips[i].classList.remove('active');
-        chip.classList.add('active');
-        el.defenseStatus.textContent = '已套用模板「' + t.label + '」——可直接开考，或在其基础上再编辑。';
+    } else {
+      el.defenseTemplates.hidden = false;
+      var label = document.createElement('span');
+      label.className = 'defense-templates-label';
+      label.textContent = '布防模板 · 一键套用：';
+      el.defenseTemplates.appendChild(label);
+      tpls.forEach(function (t) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'tpl-chip';
+        chip.textContent = t.label;
+        if (t.desc) chip.title = t.desc;
+        chip.addEventListener('click', function () {
+          el.defensePrompt.value = t.prompt;
+          var chips = el.defenseTemplates.querySelectorAll('.tpl-chip');
+          for (var i = 0; i < chips.length; i++) chips[i].classList.remove('active');
+          chip.classList.add('active');
+          el.defenseStatus.textContent = '已套用模板「' + t.label + '」——可直接开考，或在其基础上再编辑。';
+        });
+        el.defenseTemplates.appendChild(chip);
       });
-      el.defenseTemplates.appendChild(chip);
+    }
+
+    // 守方针对点（每关的防守考点）+ 守方军师提示（递进思路）
+    el.defenseLesson.textContent = lv && lv.defenseBrief ? '守方针对点 · ' + lv.defenseBrief : '';
+    el.defenseHintsList.innerHTML = '';
+    var dh = (lv && lv.defenseHints) || [];
+    el.defenseHints.hidden = dh.length === 0;
+    dh.forEach(function (h) {
+      var li = document.createElement('li');
+      li.textContent = h;
+      el.defenseHintsList.appendChild(li);
     });
   }
 

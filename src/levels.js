@@ -56,8 +56,12 @@ function publicLevel(level, defaultModel) {
     attackSurface: level.attackSurface,
     difficulty: level.difficulty,
     brief: level.brief,
+    // 考点（教学）：本关考察的攻击技术/原理一句话，攻方针对点
+    lesson: level.lesson || null,
     defenseBrief: level.defenseBrief,
     hints: level.hints || [],
+    // 守方军师提示（教学）：防守思路分条，与 hints 攻方对应
+    defenseHints: Array.isArray(level.defenseHints) ? level.defenseHints : [],
     // 布防模板库（守方教学，无敏感内容）：前端一键套用进布防插槽
     defenseTemplates: Array.isArray(level.defenseTemplates) ? level.defenseTemplates : [],
     hasGuard: Boolean(level.guard),

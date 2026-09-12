@@ -28,7 +28,7 @@ database_id = "cd0cf1a1-e4bc-4ed3-a51d-35cd5ccbcaaa"
 
 [vars]
 # GitHub OAuth App 的 client_id（公开值，非机密；client_secret 走 wrangler secret）
-ARENA_GITHUB_CLIENT_ID = ""
+ARENA_GITHUB_CLIENT_ID = "Ov23lizoDaViKdugBCVm"
 
 # LLM 中转供应商域名白名单（逗号分隔，https + 443 端口才放行）。
 # 玩家自选供应商，但只允许指向这些主机——防止 Worker 沦为任意代理。
