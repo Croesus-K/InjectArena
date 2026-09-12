@@ -21,7 +21,9 @@
     busy: false,
     defenseBusy: false,
     config: null,       // {baseUrl, model, key} | null
-    session: null       // {login, avatar} | null
+    session: null,      // {login, avatar} | null
+    boardLevelId: null, // 观星台当前查看的关卡（每关榜单独立）
+    boardData: null     // 最近一次榜单请求缓存（切关不重新请求）
   };
 
   var el = {
@@ -44,6 +46,7 @@
     attackPanel: document.getElementById('attack-panel'),
     defensePanel: document.getElementById('defense-panel'),
     boardPanel: document.getElementById('board-panel'),
+    boardLevelSelect: document.getElementById('board-level'),
     boardAttack: document.getElementById('board-attack'),
     boardDefense: document.getElementById('board-defense'),
     boardEmpty: document.getElementById('board-empty'),
@@ -316,6 +319,12 @@
       var node = debriefElement(lv, false);
       if (node) el.levelHead.appendChild(node);
     }
+    // 榜单按关独立：观星台开着时切阵，榜单跟随
+    if (state.mode === 'board' && state.boardLevelId !== id) {
+      state.boardLevelId = id;
+      renderBoardLevelSelect();
+      renderBoard();
+    }
     el.input.focus();
   }
 
@@ -361,22 +370,30 @@
     el.attackPanel.hidden = mode !== 'attack';
     el.defensePanel.hidden = mode !== 'defense';
     el.boardPanel.hidden = mode !== 'board';
-    if (mode === 'board') loadBoard();
+    if (mode === 'board') {
+      // 每关榜单独立：首次进入跟随当前阵，之后保留上次查看的关卡
+      if (!state.boardLevelId) state.boardLevelId = state.currentId;
+      renderBoardLevelSelect();
+      loadBoard();
+    }
   }
 
   el.tabAttack.addEventListener('click', function () { switchMode('attack'); });
   el.tabDefense.addEventListener('click', function () { switchMode('defense'); });
   el.tabBoard.addEventListener('click', function () { switchMode('board'); });
 
-  /* ---------- 榜 · 观星台 ---------- */
+  /* ---------- 榜 · 观星台（每关榜单独立） ---------- */
 
-  function groupByLevel(rows) {
-    var map = {};
-    rows.forEach(function (r) {
-      if (!map[r.levelId]) map[r.levelId] = [];
-      map[r.levelId].push(r);
+  function renderBoardLevelSelect() {
+    el.boardLevelSelect.innerHTML = '';
+    state.levels.forEach(function (lv) {
+      var opt = document.createElement('option');
+      opt.value = lv.id;
+      opt.textContent = lv.id + ' · ' + lv.name;
+      el.boardLevelSelect.appendChild(opt);
     });
-    return map;
+    if (!state.boardLevelId && state.levels.length) state.boardLevelId = state.levels[0].id;
+    el.boardLevelSelect.value = state.boardLevelId || '';
   }
 
   /** cells 元素可以是字符串（textContent 安全渲染）或已建好的 DOM 节点（头像/留言富展示）。 */
@@ -442,53 +459,62 @@
   async function loadBoard() {
     el.boardAttack.innerHTML = '';
     el.boardDefense.innerHTML = '';
-    el.boardEmpty.textContent = '';
+    el.boardEmpty.textContent = '加载中……';
     try {
-      var data = await (await fetch(API + '/leaderboard')).json();
-      var lvName = {};
-      state.levels.forEach(function (lv) { lvName[lv.id] = lv.name; });
-
-      var groups = groupByLevel(data.attack || []);
-      Object.keys(groups).sort().forEach(function (levelId) {
-        var h = document.createElement('h3');
-        h.textContent = levelId + ' · ' + (lvName[levelId] || '');
-        el.boardAttack.appendChild(h);
-        el.boardAttack.appendChild(boardTable(
-          ['名号', '留言', '最短', 'token', '时间'],
-          groups[levelId].map(function (r) {
-            return [playerCell(r), messageCell(r.message), r.chars + ' 字', r.tokens || '-', shortTs(r.ts)];
-          })
-        ));
-      });
-
-      var dgroups = groupByLevel(data.defense || []);
-      Object.keys(dgroups).sort().forEach(function (levelId) {
-        var h = document.createElement('h3');
-        h.textContent = levelId + ' · ' + (lvName[levelId] || '');
-        el.boardDefense.appendChild(h);
-        el.boardDefense.appendChild(boardTable(
-          ['名号', '留言', '拦截率', '泄露率', '误杀率', '样本', '时间'],
-          dgroups[levelId].map(function (r) {
-            return [
-              playerCell(r),
-              messageCell(r.message),
-              Math.round(r.blockRate * 1000) / 10 + '%',
-              Math.round(r.leakRate * 1000) / 10 + '%',
-              r.fpRate === null || r.fpRate === undefined ? '-' : Math.round(r.fpRate * 1000) / 10 + '%',
-              r.evaluated,
-              shortTs(r.ts)
-            ];
-          })
-        ));
-      });
-
-      if (!Object.keys(groups).length && !Object.keys(dgroups).length) {
-        el.boardEmpty.textContent = '两榜皆虚位以待——破一阵、考一段，名字便上来了。';
-      }
+      state.boardData = await (await fetch(API + '/leaderboard')).json();
+      renderBoard();
     } catch (e) {
       el.boardEmpty.textContent = '榜单加载失败：' + e.message;
     }
   }
+
+  /** 每关榜单独立：只渲染 boardLevelId 这一关的攻/守两榜（数据一次拉取，切关零请求）。 */
+  function renderBoard() {
+    el.boardAttack.innerHTML = '';
+    el.boardDefense.innerHTML = '';
+    el.boardEmpty.textContent = '';
+    if (!state.boardData) return;
+    var levelId = state.boardLevelId;
+    var lvName = '';
+    state.levels.forEach(function (lv) { if (lv.id === levelId) lvName = lv.id + ' · ' + lv.name; });
+
+    var attackRows = (state.boardData.attack || []).filter(function (r) { return r.levelId === levelId; });
+    if (attackRows.length) {
+      el.boardAttack.appendChild(boardTable(
+        ['名号', '留言', '最短', 'token', '时间'],
+        attackRows.map(function (r) {
+          return [playerCell(r), messageCell(r.message), r.chars + ' 字', r.tokens || '-', shortTs(r.ts)];
+        })
+      ));
+    }
+
+    var defenseRows = (state.boardData.defense || []).filter(function (r) { return r.levelId === levelId; });
+    if (defenseRows.length) {
+      el.boardDefense.appendChild(boardTable(
+        ['名号', '留言', '拦截率', '泄露率', '误杀率', '样本', '时间'],
+        defenseRows.map(function (r) {
+          return [
+            playerCell(r),
+            messageCell(r.message),
+            Math.round(r.blockRate * 1000) / 10 + '%',
+            Math.round(r.leakRate * 1000) / 10 + '%',
+            r.fpRate === null || r.fpRate === undefined ? '-' : Math.round(r.fpRate * 1000) / 10 + '%',
+            r.evaluated,
+            shortTs(r.ts)
+          ];
+        })
+      ));
+    }
+
+    if (!attackRows.length && !defenseRows.length) {
+      el.boardEmpty.textContent = (lvName || levelId || '此阵') + '虚位以待——破一阵、考一段，名字便上来了。';
+    }
+  }
+
+  el.boardLevelSelect.addEventListener('change', function () {
+    state.boardLevelId = el.boardLevelSelect.value;
+    renderBoard();
+  });
 
   /* ---------- 攻侧：聊天与判定 ---------- */
 
