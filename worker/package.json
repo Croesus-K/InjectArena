@@ -1,0 +1,6 @@
+{
+  "name": "arena-worker",
+  "private": true,
+  "type": "module",
+  "description": "InjectArena 站内部署后端（Cloudflare Workers + D1）。type:module 让 node --test 能以 ESM 跑本目录的 .test.js；esbuild 打包不受影响。"
+}

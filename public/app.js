@@ -1,19 +1,27 @@
 'use strict';
 /**
- * 攻心 InjectArena —— 最小前端（原生 JS，零构建）。
- * 攻侧：关卡列表、聊天框、提交判定（破阵纪录仅存本页内存）。
+ * 攻心 InjectArena —— 前端（原生 JS，零构建，BYOK 站内部署版）。
+ * 攻侧：关卡列表、聊天框、破阵判定（破阵后凭服务端签发的凭证自填名号上榜）。
  * 守侧：布防插槽编辑、跑分开考、拦截率/泄露率/误杀率报告。
+ * BYOK：玩家 Key 只存本机 localStorage，随请求头经站内 Worker 中转发给供应商。
+ * 身份：GitHub OAuth 登录（可选），上榜可挂头像与用户名。
  */
 
 (function () {
+  var API = '/api/arena';
+  var CONFIG_KEY = 'arenaPlayerConfig';   // {baseUrl, model, key}
+  var DISPLAY_KEY = 'arenaDisplayName';   // 上次上榜用的名号
+
   var state = {
     levels: [],
     currentId: null,
-    mode: 'attack',     // attack | defense
+    mode: 'attack',     // attack | defense | board
     history: [],        // [{role, content}] 当前阵的对话历史（不含系统提示词）
     records: {},        // levelId -> {chars, tokens, payloadText} 本页最短破阵纪录
     busy: false,
-    defenseBusy: false
+    defenseBusy: false,
+    config: null,       // {baseUrl, model, key} | null
+    session: null       // {login, avatar} | null
   };
 
   var el = {
@@ -28,6 +36,8 @@
     payloadLen: document.getElementById('payload-len'),
     notice: document.getElementById('notice'),
     health: document.getElementById('health'),
+    btnConfig: document.getElementById('btn-config'),
+    authArea: document.getElementById('auth-area'),
     tabAttack: document.getElementById('tab-attack'),
     tabDefense: document.getElementById('tab-defense'),
     tabBoard: document.getElementById('tab-board'),
@@ -44,7 +54,21 @@
     defenseStatus: document.getElementById('defense-status'),
     defenseReport: document.getElementById('defense-report'),
     defenseLimit: document.getElementById('defense-limit'),
-    defenseTemplates: document.getElementById('defense-templates')
+    defenseTemplates: document.getElementById('defense-templates'),
+    configDialog: document.getElementById('config-dialog'),
+    cfgPreset: document.getElementById('cfg-preset'),
+    cfgBaseUrl: document.getElementById('cfg-baseurl'),
+    cfgModel: document.getElementById('cfg-model'),
+    cfgKey: document.getElementById('cfg-key'),
+    cfgError: document.getElementById('cfg-error'),
+    recordDialog: document.getElementById('record-dialog'),
+    recordTitle: document.getElementById('record-title'),
+    recordSummary: document.getElementById('record-summary'),
+    recordId: document.getElementById('record-id'),
+    recordMessage: document.getElementById('record-message'),
+    recordGithubRow: document.getElementById('record-github-row'),
+    recordGithub: document.getElementById('record-github'),
+    recordError: document.getElementById('record-error')
   };
 
   var SURFACE_NAMES = {
@@ -55,6 +79,174 @@
     'tool-abuse': '工具滥用',
     'mcp-poisoning': 'MCP 投毒'
   };
+
+  /* ---------- BYOK 配置 ---------- */
+
+  function loadPlayerConfig() {
+    try {
+      var raw = localStorage.getItem(CONFIG_KEY);
+      if (!raw) return null;
+      var cfg = JSON.parse(raw);
+      if (cfg && cfg.baseUrl && cfg.model && cfg.key) return cfg;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function savePlayerConfig(cfg) {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+    state.config = cfg;
+    renderHealth();
+  }
+
+  function clearPlayerConfig() {
+    localStorage.removeItem(CONFIG_KEY);
+    state.config = null;
+    renderHealth();
+  }
+
+  function providerHeaders() {
+    var cfg = state.config;
+    return {
+      'x-arena-key': cfg.key,
+      'x-arena-base-url': cfg.baseUrl,
+      'x-arena-model': cfg.model
+    };
+  }
+
+  /** 没配 Key 时不发请求：打开配置面板引导。返回 null 表示中断。 */
+  function requireConfig() {
+    if (state.config) return state.config;
+    pushNotice('请先配置你的 LLM API Key（BYOK）——Key 只存本机浏览器，站主不经手。');
+    openConfigDialog();
+    return null;
+  }
+
+  var PRESETS = {
+    deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+    glm: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+    kimi: { baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k2-0711-preview' },
+    qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+    openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+    openrouter: { baseUrl: 'https://openrouter.ai/api/v1', model: '' }
+  };
+
+  function shortHost(u) {
+    try { return new URL(u).hostname; } catch (_) { return u; }
+  }
+
+  function renderHealth() {
+    if (state.config) {
+      el.health.textContent = '已配置 · ' + state.config.model + ' @ ' + shortHost(state.config.baseUrl);
+      el.health.className = 'health ok';
+    } else {
+      el.health.textContent = '未配置 Key —— 点「配置」开始（BYOK）';
+      el.health.className = 'health warn';
+    }
+  }
+
+  function openConfigDialog() {
+    el.cfgError.textContent = '';
+    var cfg = state.config || {};
+    el.cfgPreset.value = '';
+    el.cfgBaseUrl.value = cfg.baseUrl || '';
+    el.cfgModel.value = cfg.model || '';
+    el.cfgKey.value = cfg.key || '';
+    if (el.configDialog.showModal) el.configDialog.showModal();
+    else el.configDialog.setAttribute('open', '');
+  }
+
+  el.btnConfig.addEventListener('click', openConfigDialog);
+
+  el.cfgPreset.addEventListener('change', function () {
+    var p = PRESETS[el.cfgPreset.value];
+    if (!p) return;
+    el.cfgBaseUrl.value = p.baseUrl;
+    if (p.model) el.cfgModel.value = p.model;
+  });
+
+  document.getElementById('cfg-save').addEventListener('click', function () {
+    var baseUrl = el.cfgBaseUrl.value.trim();
+    var model = el.cfgModel.value.trim();
+    var key = el.cfgKey.value.trim();
+    if (!baseUrl || !model || !key) {
+      el.cfgError.textContent = '三项都要填：服务地址、模型名、API Key。';
+      return;
+    }
+    if (baseUrl.indexOf('https://') !== 0) {
+      el.cfgError.textContent = '服务地址必须以 https:// 开头。';
+      return;
+    }
+    savePlayerConfig({ baseUrl: baseUrl, model: model, key: key });
+    if (el.configDialog.close) el.configDialog.close();
+  });
+
+  document.getElementById('cfg-clear').addEventListener('click', function () {
+    if (!window.confirm('确定清除本机保存的 API Key 与供应商配置？')) return;
+    clearPlayerConfig();
+    el.cfgBaseUrl.value = '';
+    el.cfgModel.value = '';
+    el.cfgKey.value = '';
+    el.cfgError.textContent = '已清除本机 Key。';
+  });
+
+  document.getElementById('cfg-close').addEventListener('click', function () {
+    if (el.configDialog.close) el.configDialog.close();
+  });
+
+  /* ---------- GitHub 登录 ---------- */
+
+  function renderAuthArea() {
+    el.authArea.innerHTML = '';
+    if (state.session) {
+      var img = document.createElement('img');
+      img.className = 'auth-avatar';
+      img.src = state.session.avatar || '';
+      img.alt = '';
+      img.referrerPolicy = 'no-referrer';
+      var name = document.createElement('span');
+      name.className = 'auth-name';
+      name.textContent = state.session.login;
+      var out = document.createElement('button');
+      out.type = 'button';
+      out.className = 'ghost-btn';
+      out.textContent = '退出';
+      out.addEventListener('click', logout);
+      el.authArea.appendChild(img);
+      el.authArea.appendChild(name);
+      el.authArea.appendChild(out);
+    } else {
+      var a = document.createElement('a');
+      a.className = 'ghost-btn';
+      a.href = API + '/auth/login';
+      a.textContent = 'GitHub 登录';
+      el.authArea.appendChild(a);
+    }
+  }
+
+  async function loadMe() {
+    try {
+      var res = await fetch(API + '/auth/me');
+      var data = await res.json();
+      state.session = data.login ? { login: data.login, avatar: data.avatarUrl } : null;
+    } catch (_) {
+      state.session = null;
+    }
+    renderAuthArea();
+  }
+
+  async function logout() {
+    var clearKey = window.confirm(
+      '退出 GitHub 登录？\n\n「确定」= 退出并清除本机保存的 API Key\n「取消」= 仅退出（Key 保留在本机）'
+    );
+    try { await fetch(API + '/auth/logout', { method: 'POST' }); } catch (_) { /* 会话 Cookie 清理失败不影响本地 */ }
+    state.session = null;
+    if (clearKey) clearPlayerConfig();
+    renderAuthArea();
+  }
+
+  /* ---------- 阵法列表 ---------- */
 
   function stars(n) {
     // 难度上限随关卡数据动态扩展（L6 起为 6 星），星盘总数取全库最大难度
@@ -74,21 +266,12 @@
     return null;
   }
 
-  /* ---------- 阵法列表 ---------- */
-
-  function shortModel(m) {
-    if (!m) return '';
-    var parts = m.split('/');
-    return parts[parts.length - 1];
-  }
-
   function renderLevels() {
     el.levelList.innerHTML = '';
     state.levels.forEach(function (lv) {
       var card = document.createElement('button');
       card.className = 'level-card' + (lv.id === state.currentId ? ' active' : '');
       var meta = (SURFACE_NAMES[lv.attackSurface] || lv.attackSurface) + ' · 难度 ' + stars(lv.difficulty);
-      if (lv.model) meta += ' · 守阵者 ' + shortModel(lv.model);
       if (lv.bestBreach) meta += ' · 最短破阵 ' + lv.bestBreach.chars + ' 字';
       card.innerHTML =
         '<div class="level-title">' + lv.id + ' · ' + lv.name + '</div>' +
@@ -106,7 +289,7 @@
     el.levelHead.innerHTML =
       '<h2>' + lv.id + ' · ' + lv.name + '</h2>' +
       '<p class="brief"></p>' +
-      '<p class="muted keeper">守阵者：' + (lv.model || '部署默认') +
+      '<p class="muted keeper">守阵者：你配置的模型（全关统一 · BYOK）' +
       (lv.tools && lv.tools.length ? ' · 持工具 ' + lv.tools.map(function (t) { return t.name; }).join('、') : '') +
       (lv.bestBreach ? ' · 本阵最短破阵纪录 ' + lv.bestBreach.chars + ' 字' : '') + '</p>' +
       '<details><summary>军师提示</summary><p class="hints"></p></details>';
@@ -196,6 +379,7 @@
     return map;
   }
 
+  /** cells 元素可以是字符串（textContent 安全渲染）或已建好的 DOM 节点（头像/留言富展示）。 */
   function boardTable(headers, rows) {
     var table = document.createElement('table');
     table.className = 'board-table';
@@ -213,13 +397,42 @@
       var tr = document.createElement('tr');
       cells.forEach(function (c) {
         var td = document.createElement('td');
-        td.textContent = c;
+        if (c && c.nodeType === 1) td.appendChild(c);
+        else td.textContent = c;
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
     return table;
+  }
+
+  function playerCell(r) {
+    var wrap = document.createElement('span');
+    wrap.className = 'player-cell';
+    if (r.githubLogin && r.githubAvatar) {
+      var img = document.createElement('img');
+      img.className = 'board-avatar';
+      img.src = r.githubAvatar;
+      img.alt = '';
+      img.referrerPolicy = 'no-referrer';
+      wrap.appendChild(img);
+      var gh = document.createElement('span');
+      gh.textContent = r.player + '（' + r.githubLogin + '）';
+      wrap.appendChild(gh);
+    } else {
+      var name = document.createElement('span');
+      name.textContent = r.player;
+      wrap.appendChild(name);
+    }
+    return wrap;
+  }
+
+  function messageCell(text) {
+    var span = document.createElement('span');
+    span.className = 'board-msg';
+    span.textContent = text || '';
+    return span;
   }
 
   function shortTs(ts) {
@@ -231,7 +444,7 @@
     el.boardDefense.innerHTML = '';
     el.boardEmpty.textContent = '';
     try {
-      var data = await (await fetch('/api/leaderboard')).json();
+      var data = await (await fetch(API + '/leaderboard')).json();
       var lvName = {};
       state.levels.forEach(function (lv) { lvName[lv.id] = lv.name; });
 
@@ -241,8 +454,10 @@
         h.textContent = levelId + ' · ' + (lvName[levelId] || '');
         el.boardAttack.appendChild(h);
         el.boardAttack.appendChild(boardTable(
-          ['名号', '最短', 'token', '时间'],
-          groups[levelId].map(function (r) { return [r.player, r.chars + ' 字', r.tokens || '-', shortTs(r.ts)]; })
+          ['名号', '留言', '最短', 'token', '时间'],
+          groups[levelId].map(function (r) {
+            return [playerCell(r), messageCell(r.message), r.chars + ' 字', r.tokens || '-', shortTs(r.ts)];
+          })
         ));
       });
 
@@ -252,10 +467,11 @@
         h.textContent = levelId + ' · ' + (lvName[levelId] || '');
         el.boardDefense.appendChild(h);
         el.boardDefense.appendChild(boardTable(
-          ['名号', '拦截率', '泄露率', '误杀率', '样本', '时间'],
+          ['名号', '留言', '拦截率', '泄露率', '误杀率', '样本', '时间'],
           dgroups[levelId].map(function (r) {
             return [
-              r.player,
+              playerCell(r),
+              messageCell(r.message),
               Math.round(r.blockRate * 1000) / 10 + '%',
               Math.round(r.leakRate * 1000) / 10 + '%',
               r.fpRate === null || r.fpRate === undefined ? '-' : Math.round(r.fpRate * 1000) / 10 + '%',
@@ -375,9 +591,73 @@
     el.send.textContent = b ? '运功中…' : '出 招';
   }
 
+  /* ---------- 上榜弹窗（凭证兑换） ---------- */
+
+  var pendingRecord = null; // {kind, credential, level}
+
+  function openRecordDialog(info) {
+    pendingRecord = info;
+    el.recordError.textContent = '';
+    var isBreach = info.kind === 'breach';
+    el.recordTitle.textContent = isBreach ? '破阵成功 · 上榜' : '考段完成 · 上榜';
+    el.recordSummary.textContent = isBreach
+      ? info.level.id + ' · ' + info.level.name + ' —— 本招 ' + info.credential.chars + ' 字' +
+        (info.credential.tokens ? ' / ' + info.credential.tokens + ' token' : '') + '。兑换上榜需在 2 小时内完成。'
+      : info.level.id + ' · ' + info.level.name + ' —— 拦截率 ' + Math.round(info.credential.blockRate * 1000) / 10 + '%（样本 ' + info.credential.blockRate_sampleCount + '）。兑换上榜需在 2 小时内完成。';
+    el.recordId.value = localStorage.getItem(DISPLAY_KEY) || (state.session ? state.session.login : '');
+    el.recordMessage.value = '';
+    el.recordGithubRow.hidden = !state.session;
+    el.recordGithub.checked = Boolean(state.session);
+    if (el.recordDialog.showModal) el.recordDialog.showModal();
+  }
+
+  document.getElementById('record-submit').addEventListener('click', async function () {
+    if (!pendingRecord) return;
+    var displayId = el.recordId.value.trim();
+    if (!displayId) {
+      el.recordError.textContent = '榜上名号不能为空。';
+      return;
+    }
+    localStorage.setItem(DISPLAY_KEY, displayId);
+    try {
+      var res = await fetch(API + '/records', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind: pendingRecord.kind,
+          credential: pendingRecord.credential.token,
+          displayId: displayId,
+          message: el.recordMessage.value.trim() || undefined,
+          showGithub: state.session && el.recordGithub.checked
+        })
+      });
+      var data = await res.json();
+      if (!res.ok) {
+        el.recordError.textContent = data.error || ('提交失败（' + res.status + '）');
+        return;
+      }
+      if (el.recordDialog.close) el.recordDialog.close();
+      pushNotice(data.outcome === 'written'
+        ? '已上榜！切到「榜 · 观星」可见你的名号。'
+        : '榜上已有你更短/更优的纪录，本次未覆盖。');
+      refreshLevels();
+      if (state.mode === 'board') loadBoard();
+    } catch (e) {
+      el.recordError.textContent = '网络错误：' + e.message;
+    }
+  });
+
+  document.getElementById('record-skip').addEventListener('click', function () {
+    pendingRecord = null;
+    if (el.recordDialog.close) el.recordDialog.close();
+  });
+
+  /* ---------- 攻侧：出招 ---------- */
+
   async function send() {
     var text = el.input.value.trim();
     if (!text || state.busy || !state.currentId) return;
+    if (!requireConfig()) return;
     el.input.value = '';
     el.payloadLen.textContent = '';
 
@@ -387,9 +667,9 @@
     el.banner.hidden = true;
 
     try {
-      var res = await fetch('/api/levels/' + state.currentId + '/chat', {
+      var res = await fetch(API + '/levels/' + state.currentId + '/chat', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: Object.assign({ 'content-type': 'application/json' }, providerHeaders()),
         body: JSON.stringify({
           messages: state.history.map(function (m) { return { role: m.role, content: m.content }; })
         })
@@ -397,6 +677,8 @@
       var data = await res.json();
       if (!res.ok) {
         pushNotice(data.error || ('请求失败（' + res.status + '）'));
+        state.history.pop(); // 失败的招式不入对话史，可原地重出
+        renderChat();
       } else {
         state.history.push({ role: 'assistant', content: data.reply, retrieved: data.retrieved, toolTrace: data.toolTrace });
         renderChat();
@@ -413,6 +695,11 @@
             (data.tokens ? ' / ' + data.tokens + ' token' : '') + '）', true);
           showDebrief(currentLevel(), true);
           renderRecord();
+          if (data.credential && data.credential.token) {
+            openRecordDialog({ kind: 'breach', credential: data.credential, level: currentLevel() });
+          } else {
+            pushNotice('本站暂未启用上榜（站长未完成凭证配置）——破阵已记录在本页。');
+          }
         } else {
           showBanner('城未破。守阵者没有说出密令——换一阵法再攻。', false);
         }
@@ -497,6 +784,7 @@
     var marker = el.rejectMarker.value.trim();
     var limit = parseInt(el.defenseLimit.value, 10);
     if (!prompt || state.defenseBusy || !state.currentId) return;
+    if (!requireConfig()) return;
 
     state.defenseBusy = true;
     el.defenseRun.disabled = true;
@@ -525,9 +813,9 @@
     try {
       var body = { defensePrompt: prompt, rejectMarker: marker || undefined };
       if (!isNaN(limit) && limit > 0) body.limit = limit;
-      var res = await fetch('/api/levels/' + state.currentId + '/defense/evaluate/stream', {
+      var res = await fetch(API + '/levels/' + state.currentId + '/defense/evaluate/stream', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: Object.assign({ 'content-type': 'application/json' }, providerHeaders()),
         body: JSON.stringify(body)
       });
 
@@ -560,8 +848,11 @@
             if (!line) continue;
             var ev = JSON.parse(line);
             if (ev.type === 'start') {
-              total = ev.total + ev.benign;
+              total = ev.total;
               showProgress(0, total, 0);
+              if (ev.capped) {
+                el.defenseStatus.textContent = '语料超出单次上限（平台子请求限制），本次按前 ' + total + ' 条开考；可分多次考完。';
+              }
             } else if (ev.type === 'progress') {
               if (ev.leaked) leakedCount += 1;
               showProgress(ev.done, total, leakedCount);
@@ -577,7 +868,16 @@
       await pump(false);
 
       progressLine.remove();
-      if (report) renderDefenseReport(report);
+      if (report) {
+        renderDefenseReport(report);
+        if (report.credential && report.credential.token) {
+          openRecordDialog({
+            kind: 'defense',
+            credential: Object.assign({}, report.credential, { blockRate_sampleCount: report.attack.evaluated }),
+            level: currentLevel()
+          });
+        }
+      }
     } catch (e) {
       el.defenseStatus.textContent = '网络错误：' + e.message;
       progressLine.remove();
@@ -591,25 +891,50 @@
 
   /* ---------- 初始化 ---------- */
 
-  async function init() {
+  async function refreshLevels() {
     try {
-      var res = await fetch('/api/levels');
+      var res = await fetch(API + '/levels');
       var data = await res.json();
       state.levels = data.levels || [];
-      if (state.levels.length === 0) {
+      if (!state.currentId && state.levels.length === 0) {
         pushNotice('未加载到任何关卡。');
         return;
       }
-      selectLevel(state.levels[0].id);
+      var keep = state.currentId;
+      if (!keep || !state.levels.some(function (lv) { return lv.id === keep; })) {
+        keep = state.levels.length ? state.levels[0].id : null;
+      }
+      if (keep !== state.currentId || !state.currentId) {
+        state.currentId = null;
+        selectLevel(keep);
+      } else {
+        renderLevels();
+        renderLevelHead();
+      }
     } catch (e) {
       pushNotice('关卡加载失败：' + e.message);
     }
+  }
+
+  async function init() {
+    state.config = loadPlayerConfig();
+    renderHealth();
+
+    // GitHub 登录回跳参数（?login=ok|error）——提示后清掉，避免刷新重复提示
+    var params = new URLSearchParams(location.search);
+    if (params.get('login') === 'ok') pushNotice('GitHub 登录成功——破阵上榜可挂你的头像与用户名了。');
+    if (params.get('login') === 'error') pushNotice('GitHub 登录失败，可重试；不登录也能正常闯关上榜。');
+    if (params.has('login')) history.replaceState(null, '', location.pathname);
+
+    await loadMe();
+    await refreshLevels();
+
     try {
-      var h = await (await fetch('/api/health')).json();
-      el.health.textContent = h.provider
-        ? 'LLM：' + h.provider + ' · ' + h.model
-        : 'LLM 未配置（BYOK：在服务端设置 INJECTARENA_* 环境变量）';
-      el.health.className = 'health' + (h.provider ? ' ok' : ' warn');
+      var h = await (await fetch(API + '/health')).json();
+      if (!h.ok) return;
+      // 服务端健康信息并入页脚备注（BYOK 模式下 provider/model 由玩家配置决定）
+      var footer = document.querySelector('footer');
+      if (footer && h.version) footer.setAttribute('data-version', 'v' + h.version);
     } catch (_) { /* 健康检查失败不阻塞页面 */ }
   }
 

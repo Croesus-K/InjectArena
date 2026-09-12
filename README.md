@@ -73,6 +73,38 @@ docker compose up -d    # 打开 http://127.0.0.1:8787
 - SQLite 数据（审计 + 两榜）落在命名卷 `injectarena-data`，升级镜像不丢榜。
 - `docker build` 由 CI 每次推送自动验证（见 badges）。
 
+### 乌托邦站内部署（arena-worker：BYOK 反转 + GitHub 身份）
+
+本仓库同时内含一份面向公网站点的 Cloudflare Workers 后端（`worker/`），已部署在博客「乌托邦」内：**https://croesus-k.top/arena/**。与上面两种自部署形态的核心差异是 **BYOK 反转**——站点自己不持有任何 LLM Key：
+
+| | Docker 自部署 | arena-worker（站内） |
+|---|---|---|
+| LLM Key | 部署者 `.env` 配置，站方买单 | **玩家在页面「配置」自填**，只存玩家本机 localStorage |
+| Key 流转 | 只进服务端内存 | 随请求头经 Worker **透传**给玩家所选供应商：不落盘、不进日志、响应即焚 |
+| 供应商 | 部署 `.env` 决定 | 玩家任选 OpenAI 兼容服务（域名白名单 `PROVIDER_HOSTS` 限定，HTTPS + 443） |
+| 身份 | 打码 IP | GitHub OAuth 登录（可选）锚定；上榜名号自填、可挂头像、可留一句话 |
+| 榜单 | SQLite 文件 | Cloudflare D1（三表同构：审计 / 名将榜 / 段位榜） |
+| 守方全量跑分 | 无限制 | 单次 ≤40 条（免费版 Workers 每请求 50 子请求上限；带误杀判定 32+8；付费版可调大） |
+| 成本 | 站方出 LLM 费用 | **站方 0 元**：每次调用都是玩家自己的 Key |
+
+安全设计不变的部分：关卡 secret 与 systemPrompt 仍永不下发前端（secret 进前端 = 靶场作废）、judge 仍是确定性裁判、消息白名单与限流仍先于一切 LLM 调用。新增：破阵后服务端签发 HMAC「上榜凭证」（2 小时有效），玩家在 `/api/arena/records` 凭证兑换上榜——伪造纪录在密码学上不可行，灌水上限 = 真实破阵；同一 actor（GitHub 登录或 `guest:名号`）每关保最短/保最佳。
+
+部署步骤（`worker/wrangler.toml` 顶部有完整清单）：
+
+```bash
+cd worker
+npx wrangler d1 create arena-db                                  # database_id 回填 wrangler.toml
+npx wrangler d1 execute arena-db --remote --file=./schema.sql    # 建三张表
+npx wrangler secret put ARENA_SESSION_SECRET                     # openssl rand -hex 32
+# GitHub → Settings → Developer settings → OAuth Apps → New：
+#   回调 URL = https://你的域名/api/arena/auth/callback
+#   client_id 填入 wrangler.toml [vars]
+npx wrangler secret put ARENA_GITHUB_CLIENT_SECRET
+npx wrangler deploy
+```
+
+**与博客前端的拷贝耦合**：博客仓库（Croesus-K/blog）的 `source/arena/` 是本仓库 `public/` 三件套的逐字拷贝（相对路径设计，两种挂法通用）。`public/` 或 `levels/`、`corpus/` 有改动时，需同步拷贝到博客仓库并重新部署两侧——这是刻意的简单方案，不做跨仓库构建联动。
+
 ## 目录结构
 
 ```
@@ -90,9 +122,10 @@ docker compose up -d    # 打开 http://127.0.0.1:8787
 │   ├── config.js        # 环境变量 / .env 加载
 │   ├── db.js            # 审计日志 + 两榜存储（node:sqlite，零额外依赖）
 │   └── server.js        # Fastify 服务与路由（攻击面隔离在这里落地）
-├── levels/              # 关卡定义（schema + L1-L5 五阵）
+├── levels/              # 关卡定义（schema + L1-L6 六阵）
 ├── corpus/              # 攻击 payload 语料库（直接注入 50 + 数据窃取 15 + 间接注入 20 + 工具滥用 15，schema 先行）
-├── tests/               # node:test 单测（97 项）
+├── worker/              # ★ Cloudflare Workers 后端（BYOK 站内部署：D1 榜单 + GitHub OAuth + 玩家 Key 中转）
+├── tests/               # node:test 单测（122 项）
 └── .github/workflows/ci.yml
 ```
 

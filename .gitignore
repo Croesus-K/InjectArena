@@ -5,3 +5,7 @@ data/
 .mimosa/
 .opensquilla/
 .tmp/
+
+# wrangler 本地状态与密钥（arena-worker）
+.wrangler/
+.dev.vars
