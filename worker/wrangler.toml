@@ -1,0 +1,58 @@
+# ===== arena-worker —— InjectArena 站内部署后端（Cloudflare Workers）=====
+# 架构与博客仓库的 counter-worker 同构：
+#   前端壳由 CF Pages 静态托管（博客 source/arena/），本 Worker 只承担 /api/arena/*；
+#   关卡 secret / judge / OAuth client_secret 永不下发前端；玩家 LLM Key 只透传不落盘。
+#
+# 部署步骤（详见 README「乌托邦站内部署」章节）：
+#   1. npx wrangler d1 create arena-db          → 把返回的 database_id 填到下面
+#   2. npx wrangler d1 execute arena-db --remote --file=./schema.sql
+#   3. npx wrangler secret put ARENA_SESSION_SECRET       # 随机长串：openssl rand -hex 32
+#   4. GitHub 建 OAuth App（回调 https://croesus-k.top/api/arena/auth/callback）
+#      → client_id 填到下面 [vars]，client_secret 走：
+#      npx wrangler secret put ARENA_GITHUB_CLIENT_SECRET
+#   5. npx wrangler deploy
+
+name = "arena-worker"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+# 同源路由：与博客同域（CF Pages 与 Worker 路由同区共存，路由优先于 Pages）
+routes = [
+  { pattern = "croesus-k.top/api/arena*", zone_name = "croesus-k.top" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "arena-db"
+database_id = "cd0cf1a1-e4bc-4ed3-a51d-35cd5ccbcaaa"
+
+[vars]
+# GitHub OAuth App 的 client_id（公开值，非机密；client_secret 走 wrangler secret）
+ARENA_GITHUB_CLIENT_ID = ""
+
+# LLM 中转供应商域名白名单（逗号分隔，https + 443 端口才放行）。
+# 玩家自选供应商，但只允许指向这些主机——防止 Worker 沦为任意代理。
+PROVIDER_HOSTS = "api.deepseek.com,api.openai.com,open.bigmodel.cn,api.moonshot.cn,dashscope.aliyuncs.com,openrouter.ai,api.mistral.ai,api.groq.com,api.together.xyz,api.siliconflow.cn"
+
+# 每 IP 令牌桶限流（容量=瞬时突发；回填=每分钟补充）。Worker 内存态，isolate 间不共享，尽力而为。
+CHAT_RATE_CAPACITY = "10"
+CHAT_RATE_REFILL = "10"
+DEFENSE_RATE_CAPACITY = "2"
+DEFENSE_RATE_REFILL = "2"
+
+# 守方单次评测的攻击语料条数硬顶。
+# 免费版 Workers 每请求最多 50 个子请求（LLM 调用 + D1 都计入）：
+#   无误杀判定：40 次 LLM + 1 次审计 ≈ 41，安全；
+#   带误杀判定：8 条良性探针固定计入 → 攻击语料压到 32，总调用 ≤ 41。
+# 评测适配器关闭重试（maxRetries=0）也是为守住这条线；付费版（1000）可按需调大。
+EVAL_CAP_PLAIN = "40"
+EVAL_CAP_MARKER = "32"
+
+# 评测并发（同时打向 LLM 的 payload 数；玩家 Key 自负，仍建议 1-4 防 429 风暴）
+EVAL_CONCURRENCY = "4"
+
+# 登录成功后跳回的前端页（与 Pages 上的靶场壳一致）
+ARENA_LOGIN_FRONT = "https://croesus-k.top/arena/"
+
+# 本地联调（wrangler dev）时置 "1"：反射 Origin 允许 localhost 前端跨域调 API。生产保持空。
+DEV_ALLOW_CORS = ""
