@@ -3,6 +3,7 @@
 --   * player 列拆成 actor（唯一键：github login 或 'guest:'+display_id）+ display_id（自填展示名号）；
 --   * 新增 message（上榜一句话留言）、github_login / github_avatar（挂身份时才写入，NULL = 不挂）；
 --   * audit_log 增加 github_login（审计仍只存元数据，永不记玩家 Key）；
+--   * audit_log 保留期 90 天：worker 写入时顺手清除旧行（worker/src/d1store.js 常量 AUDIT_RETENTION_DAYS）；
 --   * 破阵 payload 明文拆出独立表 breach_payloads（隔离层）：榜单表本身零攻击原文，
 --     只有导出通道（/leaderboard?format=export，语料回流）按需 JOIN，FLAG 在导出边缘打码。
 
