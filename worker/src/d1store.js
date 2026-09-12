@@ -38,18 +38,20 @@ export async function insertAudit(db, record) {
 }
 
 /**
- * 名将榜落库（破阵凭证兑换时调用）。
+ * 名将榜落库（破阵凭证兑换时调用）。payload 明文单独落 breach_payloads（隔离层）：
+ * 榜单表只存展示字段；仅当纪录实际写入/覆盖（更短）时才写 payload。
  * @returns {Promise<'written'|'kept'>} kept = 榜上已有更短招式，未覆盖
  */
 export async function upsertBreachRecord(db, record) {
-  const res = await db
+  const row = await db
     .prepare(
-      'INSERT INTO breach_records (level_id, actor, display_id, chars, tokens, payload_text, message, github_login, github_avatar, ts) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+      'INSERT INTO breach_records (level_id, actor, display_id, chars, tokens, message, github_login, github_avatar, ts) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
         'ON CONFLICT(level_id, actor) DO UPDATE SET ' +
-        'chars = excluded.chars, tokens = excluded.tokens, payload_text = excluded.payload_text, ' +
+        'chars = excluded.chars, tokens = excluded.tokens, ' +
         'message = excluded.message, github_login = excluded.github_login, github_avatar = excluded.github_avatar, ts = excluded.ts ' +
-        'WHERE excluded.chars < breach_records.chars'
+        'WHERE excluded.chars < breach_records.chars ' +
+        'RETURNING id'
     )
     .bind(
       record.levelId,
@@ -57,14 +59,21 @@ export async function upsertBreachRecord(db, record) {
       record.displayId,
       record.chars,
       n(record.tokens),
-      record.payloadText,
       n(record.message),
       n(record.githubLogin),
       n(record.githubAvatar),
       record.ts
     )
+    .first();
+  if (!row) return 'kept';
+  await db
+    .prepare(
+      'INSERT INTO breach_payloads (breach_id, payload_text, ts) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(breach_id) DO UPDATE SET payload_text = excluded.payload_text, ts = excluded.ts'
+    )
+    .bind(row.id, record.payloadText, record.ts)
     .run();
-  return res.meta && res.meta.changes > 0 ? 'written' : 'kept';
+  return 'written';
 }
 
 /**
@@ -114,13 +123,15 @@ export async function listBreachRecords(db, limit) {
 
 /**
  * 导出用完整破阵记录（含 payload 明文）：只服务 /leaderboard?format=export
- * 显式导出通道（语料回流，治理规则 2）；默认榜单视图永远不带 payload_text。
+ * 显式导出通道（语料回流，治理规则 2）；payload 经 LEFT JOIN 单独取——
+ * 榜单表本身零攻击原文；默认榜单视图永远不带 payload。
  */
 export async function listBreachRecordsFull(db, limit) {
   const out = await db
     .prepare(
-      'SELECT level_id AS levelId, display_id AS player, chars, tokens, payload_text AS payloadText, message, github_login AS githubLogin, ts ' +
-        'FROM breach_records ORDER BY level_id ASC, chars ASC, id ASC LIMIT ?'
+      'SELECT b.level_id AS levelId, b.display_id AS player, b.chars, b.tokens, p.payload_text AS payloadText, b.message, b.github_login AS githubLogin, b.ts ' +
+        'FROM breach_records b LEFT JOIN breach_payloads p ON p.breach_id = b.id ' +
+        'ORDER BY b.level_id ASC, b.chars ASC, b.id ASC LIMIT ?'
     )
     .bind(limit || 200)
     .all();
