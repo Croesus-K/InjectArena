@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { signToken, verifyToken, randomToken } from './identity.js';
+import { pruneAudit, insertAudit } from './d1store.js';
 import {
   MAX_MESSAGES,
   BENIGN_PROBES,
@@ -167,6 +168,50 @@ test('parseCookies 基本解析', () => {
   assert.equal(c.a, '1');
   assert.equal(c.arena_session, 'x.y');
   assert.equal(c.b, '');
+});
+
+/* ---------- d1store：审计修剪 ---------- */
+
+/** 极简 D1 mock：记录 prepare→bind 的 SQL 与参数。 */
+function mockDb() {
+  const calls = [];
+  return {
+    calls,
+    prepare(sql) {
+      const entry = { sql, args: null };
+      calls.push(entry);
+      return {
+        bind: (...args) => {
+          entry.args = args;
+          return {
+            run: async () => ({ meta: { changes: 1 } }),
+            first: async () => ({ id: 1 }),
+            all: async () => ({ results: [] })
+          };
+        }
+      };
+    }
+  };
+}
+
+test('pruneAudit：按 90 天保留期生成 DELETE 与 cutoff 参数', async () => {
+  const db = mockDb();
+  const now = Date.parse('2026-09-13T00:00:00Z');
+  await pruneAudit(db, now);
+  assert.equal(db.calls.length, 1);
+  assert.match(db.calls[0].sql, /^DELETE FROM audit_log WHERE ts < \?$/);
+  assert.equal(db.calls[0].args[0], '2026-06-15T00:00:00.000Z');
+});
+
+test('insertAudit：先写审计行，且首个写入触发一次修剪', async () => {
+  const db = mockDb();
+  await insertAudit(db, { ts: '2026-09-13T00:00:00Z', ip: '1.2.3.4', route: 'chat', outcome: 'defended' });
+  assert.equal(db.calls.length, 2);
+  assert.match(db.calls[0].sql, /^INSERT INTO audit_log/);
+  assert.match(db.calls[1].sql, /^DELETE FROM audit_log WHERE ts < \?$/);
+  // 插入参数：passed 缺省为 null，github_login 缺省 null
+  assert.equal(db.calls[0].args[6], null);
+  assert.equal(db.calls[0].args[9], null);
 });
 
 test('BENIGN_PROBES 形状稳定（8 条，id/text）', () => {

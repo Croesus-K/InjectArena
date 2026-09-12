@@ -16,6 +16,20 @@ function n(value) {
   return value === undefined || value === null ? null : value;
 }
 
+/** 审计保留期（天）：过期行在写入时顺手清除。改动保留策略只动这个常量。 */
+const AUDIT_RETENTION_DAYS = 90;
+const PRUNE_INTERVAL_MS = 3600 * 1000; // 每 isolate 每小时最多清一次，避免每请求多打 D1 子请求
+let lastPruneAt = 0;
+
+/**
+ * 清除超过保留期的审计旧行（ts 为 ISO 字符串，与 cutoff 同构可直接比较）。
+ * 独立导出以便单测；失败静默——修剪只是卫生措施，绝不影响主流程。
+ */
+export async function pruneAudit(db, nowMs) {
+  const cutoff = new Date(nowMs - AUDIT_RETENTION_DAYS * 86400000).toISOString();
+  await db.prepare('DELETE FROM audit_log WHERE ts < ?').bind(cutoff).run();
+}
+
 /** 审计日志：只追加、只存元数据（不含 payload 明文、不含 Key）。 */
 export async function insertAudit(db, record) {
   await db
@@ -35,6 +49,15 @@ export async function insertAudit(db, record) {
       record.githubLogin || null
     )
     .run();
+
+  // 顺手修剪：限流到每 isolate 每小时一次；失败不影响主写入
+  const now = Date.now();
+  if (now - lastPruneAt > PRUNE_INTERVAL_MS) {
+    lastPruneAt = now;
+    try {
+      await pruneAudit(db, now);
+    } catch (_) { /* 修剪失败不影响主流程 */ }
+  }
 }
 
 /**
