@@ -103,7 +103,7 @@ npx wrangler secret put ARENA_GITHUB_CLIENT_SECRET
 npx wrangler deploy
 ```
 
-**与博客前端的拷贝耦合**：博客仓库（Croesus-K/blog）的 `source/arena/` 是本仓库 `public/` 三件套的逐字拷贝（相对路径设计，两种挂法通用）。`public/` 或 `levels/`、`corpus/` 有改动时，需同步拷贝到博客仓库并重新部署两侧——这是刻意的简单方案，不做跨仓库构建联动。
+**与博客前端的拷贝耦合**：博客仓库（Croesus-K/blog）的 `source/arena/` 是本仓库 `public/` 三件套的逐字拷贝（相对路径设计，两种挂法通用）。`public/` 或 `levels/`、`corpus/` 有改动时，需同步拷贝到博客仓库并重新部署两侧——这是刻意的简单方案，不做跨仓库构建联动。**注意**：CF Pages 对非 HTML 资源默认发 `max-age=14400`（浏览器强缓存 4 小时），改了 `app.js`/`style.css` 必须 bump `index.html` 里两处 `?v=` 版本参数，否则老访客最长 4 小时看不到新逻辑。
 
 ## 目录结构
 
