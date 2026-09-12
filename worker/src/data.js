@@ -47,8 +47,10 @@ export function publicLevel(level) {
     attackSurface: level.attackSurface,
     difficulty: level.difficulty,
     brief: level.brief,
+    lesson: level.lesson || null, // 考点（攻方针对点）
     defenseBrief: level.defenseBrief,
     hints: level.hints || [],
+    defenseHints: Array.isArray(level.defenseHints) ? level.defenseHints : [], // 守方军师提示
     defenseTemplates: Array.isArray(level.defenseTemplates) ? level.defenseTemplates : [],
     hasGuard: Boolean(level.guard),
     model: null, // BYOK：守阵者模型由玩家在「配置」里提供，全关统一
