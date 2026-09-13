@@ -26,6 +26,7 @@ import * as store from './d1store.js';
 import {
   MAX_MESSAGES,
   BENIGN_PROBES,
+  isSimilarToAny,
   sanitizeClientMessages,
   selectCorpus,
   redactFlagTokens,
@@ -186,11 +187,18 @@ async function getLeaderboard(request, env) {
     const limitRaw = Number(url.searchParams.get('limit'));
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), EXPORT_LIMIT_MAX) : EXPORT_LIMIT_MAX;
     const breaches = await store.listBreachRecordsFull(env.DB, limit);
+    const unclaimed = await store.listUnclaimedBreaches(env.DB, limit);
     return jsonResponse({
-      format: 'injectarena-export@1',
+      format: 'injectarena-export@2',
       exportedAt: new Date().toISOString(),
       redacted: true,
       breaches: breaches.map((r) => ({
+        ...r,
+        attackSurface: (LEVEL_BY_ID.get(r.levelId) || {}).attackSurface || null,
+        payloadText: redactFlagTokens(r.payloadText)
+      })),
+      // 未上榜破阵（破阵即录）：匿名、无 player/message/github——语料回流的另一半来源
+      unclaimedBreaches: unclaimed.map((r) => ({
         ...r,
         attackSurface: (LEVEL_BY_ID.get(r.levelId) || {}).attackSurface || null,
         payloadText: redactFlagTokens(r.payloadText)
@@ -199,9 +207,81 @@ async function getLeaderboard(request, env) {
     });
   }
   return jsonResponse({
+    // 份数榜（v0.6.0）：有效语料份数前十，仅 GitHub 登录者——破阵/考段完成即自动计入
+    attackRanking: await store.listAttackRanking(env.DB),
+    defenseRanking: await store.listDefenseRanking(env.DB),
+    // 旧口径（最短招式 / 最高拦截率）保留输出，兼容旧前端与历史展示
     attack: await store.listBreachRecords(env.DB, 100),
     defense: await store.listDefenseRecords(env.DB, 100)
   });
+}
+
+// ---------------------------------------------------------------------------
+// 留言板（v0.6.0）：破阵/考段凭证即可留名留言；时间序；积分换位
+// ---------------------------------------------------------------------------
+
+function boardEntryRow(row, rankByLogin) {
+  const rank = rankByLogin.get(row.login);
+  return {
+    id: row.id,
+    displayName: row.displayName,
+    message: row.message,
+    position: row.position,
+    ts: row.ts,
+    // 用户若在任一份数榜前十，名号前显示更优的榜排
+    rank: rank || null
+  };
+}
+
+async function getBoard(request, env) {
+  const rows = await store.listBoard(env.DB);
+  const [attackRanking, defenseRanking] = await Promise.all([
+    store.listAttackRanking(env.DB),
+    store.listDefenseRanking(env.DB)
+  ]);
+  const rankByLogin = new Map();
+  attackRanking.forEach((r, i) => { if (!rankByLogin.has(r.login)) rankByLogin.set(r.login, { board: 'attack', rank: i + 1 }); });
+  defenseRanking.forEach((r, i) => {
+    const cur = rankByLogin.get(r.login);
+    if (!cur || i + 1 < cur.rank) rankByLogin.set(r.login, { board: 'defense', rank: i + 1 });
+  });
+  return jsonResponse({ entries: rows.map((r) => boardEntryRow(r, rankByLogin)) });
+}
+
+/** 留言：需 GitHub 登录 + 2h 内破阵/考段凭证（防未破阵灌水）。一人一条，重复提交即更新内容。 */
+async function postBoard(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return jsonResponse({ error: '留言需要先登录 GitHub 账号。' }, 401);
+
+  const body = await safeJson(request);
+  const message = typeof body?.message === 'string' ? body.message.trim().slice(0, 60) : '';
+  if (!message) return jsonResponse({ error: '留言不能为空（≤60 字）。' }, 400);
+
+  const credential = typeof body?.credential === 'string' ? body.credential : '';
+  const claims = await verifyToken(env.ARENA_SESSION_SECRET, credential).catch(() => null);
+  if (!claims || (claims.kind !== 'breach' && claims.kind !== 'defense')) {
+    return jsonResponse({ error: '留言需要有效的破阵/考段凭证（2 小时内）。' }, 403);
+  }
+
+  const outcome = await store.upsertBoardMessage(env.DB, {
+    githubLogin: session.login,
+    displayName: session.login,
+    message,
+    ts: new Date().toISOString()
+  });
+  return jsonResponse({ outcome, login: session.login });
+}
+
+/** 换位：与目标留言互换序列号，扣 |Δ| 积分（等级不变）。需 GitHub 登录。 */
+async function postBoardSwap(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return jsonResponse({ error: '换位需要先登录 GitHub 账号。' }, 401);
+  const body = await safeJson(request);
+  const targetId = Number(body?.targetId);
+  if (!Number.isInteger(targetId)) return jsonResponse({ error: '目标留言 ID 不合法。' }, 400);
+  const result = await store.swapBoardPosition(env.DB, session.login, targetId);
+  if (result.error) return jsonResponse({ error: result.error }, 400);
+  return jsonResponse(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -286,6 +366,39 @@ async function postChat(request, env, ctx, levelId) {
   }
 
   const verdict = agentResult.verdict;
+
+  // 破阵即录（与上榜解耦）：payload 落 breach_unclaimed（匿名、幂等），语料回流专属。
+  // 不阻塞响应；上榜与否、凭证兑换与否都不影响这条记录——收录规则：不上榜破阵也收。
+  if (verdict.passed) {
+    ctx.waitUntil(
+      store.insertUnclaimedBreach(env.DB, {
+        levelId: level.id,
+        payloadText,
+        chars: payloadText.length,
+        tokens: agentResult.tokens === undefined ? null : agentResult.tokens,
+        ts: new Date().toISOString()
+      }).catch(() => { /* 落库失败不影响玩家；审计里仍有元数据 */ })
+    );
+  }
+
+  // 份数榜计分（v0.6.0）：仅 GitHub 登录者；破阵即自动登记语料并 +1 份 +1 分，
+  // 同关内相似度 ≥0.8 视为同一份（不重复升级）。游客只进匿名回流，不计份数。
+  if (verdict.passed && session) {
+    ctx.waitUntil(
+      (async () => {
+        const outcome = await store.insertBreachCorpus(env.DB, {
+          githubLogin: session.login,
+          levelId: level.id,
+          payloadText,
+          chars: payloadText.length,
+          ts: new Date().toISOString()
+        }, isSimilarToAny);
+        if (outcome === 'written') {
+          await store.addPlayerStats(env.DB, session.login, { breachDelta: 1, scoreDelta: 1 });
+        }
+      })().catch(() => { /* 计分失败不影响玩家 */ })
+    );
+  }
 
   // 破阵不直接落榜：签发凭证，玩家在 /records 兑换（自填名号/留言/是否挂身份）。
   // matched 命中值就是 secret，凭证里只放判定结果与元数据，绝不放 secret。
@@ -398,6 +511,22 @@ async function finalizeDefense(env, ip, session, level, defensePrompt, rejectMar
       CREDENTIAL_TTL_MS
     );
     credential = { kind: 'defense', token, blockRate: report.attack.blockRate };
+  }
+
+  // 份数榜计分（v0.6.0）：登录者考段完成即自动登记布防语料并 +1 份 +1 分；
+  // 同关内布防相似度 ≥0.8 视为同一份。同步执行：评测子请求预算 41+4 < 50 上限。
+  if (report.attack.evaluated > 0 && session) {
+    try {
+      const outcome = await store.insertDefenseCorpus(env.DB, {
+        githubLogin: session.login,
+        levelId: level.id,
+        defensePrompt,
+        ts: new Date().toISOString()
+      }, isSimilarToAny);
+      if (outcome === 'written') {
+        await store.addPlayerStats(env.DB, session.login, { defenseDelta: 1, scoreDelta: 1 });
+      }
+    } catch (_) { /* 计分失败不影响评测报告 */ }
   }
 
   return { attack: { ...report.attack, errors: errorCount }, benign: report.benign, results, errorCount, firstError, credential };
@@ -628,7 +757,13 @@ async function oauthCallback(request, env) {
 
 async function authMe(request, env) {
   const session = await readSession(request, env);
-  return jsonResponse({ login: session ? session.login : null, avatarUrl: session ? session.avatar : null });
+  const stats = session ? await store.getPlayerStats(env.DB, session.login) : null;
+  return jsonResponse({
+    login: session ? session.login : null,
+    avatarUrl: session ? session.avatar : null,
+    // 等级 = 有效语料份数（攻+守，只增）；积分 = 可消费余额（换位扣）
+    stats: stats ? { level: stats.breachCount + stats.defenseCount, score: stats.score } : null
+  });
 }
 
 async function authLogout(env) {
@@ -654,6 +789,10 @@ async function route(request, env, ctx) {
   if (request.method === 'GET' && sub === '/levels') return await getLevels(env);
   if (request.method === 'GET' && sub === '/leaderboard') return await getLeaderboard(request, env);
   if (request.method === 'POST' && sub === '/records') return await postRecords(request, env);
+
+  if (request.method === 'GET' && sub === '/board') return await getBoard(request, env);
+  if (request.method === 'POST' && sub === '/board') return await postBoard(request, env);
+  if (request.method === 'POST' && sub === '/board/swap') return await postBoardSwap(request, env);
 
   if (request.method === 'GET' && sub === '/auth/login') return await oauthLogin(request, env);
   if (request.method === 'GET' && sub === '/auth/callback') return await oauthCallback(request, env);
