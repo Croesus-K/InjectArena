@@ -1094,9 +1094,9 @@
     }
     await refreshLevels();
 
-    if (loginResult === 'ok') {
+    if (loginResult === 'ok' || loginCode) {
       pushNotice(state.session
-        ? 'GitHub 登录成功（' + state.session.login + '）——右上角已挂账号与头像。'
+        ? state.session.login + ' 已登录成功'
         : 'GitHub 授权已完成，但本页暂未检测到登录态——请刷新一次；若仍显示「GitHub 登录」，检查浏览器是否禁用了 Cookie。');
     }
     if (loginResult === 'error') pushNotice('GitHub 登录失败，可重试；不登录也能正常闯关上榜。');
