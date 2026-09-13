@@ -379,8 +379,8 @@ async function postChat(request, env, ctx, levelId) {
     );
   }
 
-  // 破阵不直接落榜：签发凭证，玩家在 /records 兑换（自填名号/留言/是否挂身份）。
-  // matched 命中值就是 secret，凭证里只放判定结果与元数据，绝不放 secret。
+  // 破阵份数已自动计入，凭证用于 2h 内留名留言（留言板）；matched 命中值就是 secret，
+  // 凭证里只放判定结果与元数据，绝不放 secret。
   let credential = null;
   if (verdict.passed && env.ARENA_SESSION_SECRET) {
     const token = await signToken(
