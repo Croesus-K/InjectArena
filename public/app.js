@@ -54,6 +54,8 @@
     boardEmpty: document.getElementById('board-empty'),
     messagesList: document.getElementById('messages-list'),
     meStats: document.getElementById('me-stats'),
+    logoutDialog: document.getElementById('logout-dialog'),
+    logoutClearKey: document.getElementById('logout-clear-key'),
     defenseLevelName: document.getElementById('defense-level-name'),
     defensePrompt: document.getElementById('defense-prompt'),
     rejectMarker: document.getElementById('reject-marker'),
@@ -292,15 +294,31 @@
     }
   }
 
-  async function logout() {
-    var clearKey = window.confirm(
-      '退出 GitHub 登录？\n\n「确定」= 退出并清除本机保存的 API Key\n「取消」= 仅退出（Key 保留在本机）'
-    );
+  /** 真正执行退出：清服务端会话，按勾选决定是否顺带清除本机 API Key。 */
+  async function doLogout(clearKey) {
     try { await fetch(API + '/auth/logout', { method: 'POST' }); } catch (_) { /* 会话 Cookie 清理失败不影响本地 */ }
     state.session = null;
     if (clearKey) clearPlayerConfig();
     renderAuthArea();
+    renderMeStats();
+    pushNotice(clearKey ? '已退出登录，本机 API Key 已清除。' : '已退出登录，本机 API Key 保留。');
   }
+
+  /** 退出入口：弹确认框（误触可取消）；「清 Key」是独立勾选，默认保留。 */
+  function logout() {
+    el.logoutClearKey.checked = false;
+    if (el.logoutDialog.showModal) el.logoutDialog.showModal();
+    else doLogout(false);
+  }
+
+  document.getElementById('logout-cancel').addEventListener('click', function () {
+    if (el.logoutDialog.close) el.logoutDialog.close();
+  });
+  document.getElementById('logout-submit').addEventListener('click', function () {
+    var clearKey = el.logoutClearKey.checked;
+    if (el.logoutDialog.close) el.logoutDialog.close();
+    doLogout(clearKey);
+  });
 
   // 登录态自动同步：其他页签登录成功（BroadcastChannel 通知）或切回本页签
   // （focus/visibilitychange，30s 节流）时重查 /auth/me，右上角随之上新
