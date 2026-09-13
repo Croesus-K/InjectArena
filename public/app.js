@@ -472,8 +472,7 @@
   }
 
   async function loadBoard() {
-    el.boardAttack.innerHTML = '';
-    el.boardDefense.innerHTML = '';
+    el.boardRanking.innerHTML = '';
     el.boardEmpty.textContent = '加载中……';
     try {
       state.boardData = await (await fetch(API + '/leaderboard')).json();
