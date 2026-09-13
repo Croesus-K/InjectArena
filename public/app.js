@@ -21,7 +21,7 @@
     defenseBusy: false,
     config: null,       // {baseUrl, model, key} | null
     session: null,      // {login, avatar} | null
-    boardData: null,    // 份数榜缓存（attackRanking/defenseRanking）
+    boardData: null,    // 攻防榜缓存（ranking）
     boardView: 'ranking',// 观星台当前页：ranking（攻防榜） | messages（留言板）
     messages: null      // 留言板缓存
   };
@@ -47,6 +47,7 @@
     defensePanel: document.getElementById('defense-panel'),
     boardPanel: document.getElementById('board-panel'),
     boardMenu: document.getElementById('board-menu'),
+    boardTitle: document.getElementById('board-title'),
     viewRanking: document.getElementById('view-ranking'),
     viewMessages: document.getElementById('view-messages'),
     boardRanking: document.getElementById('board-ranking'),
@@ -407,6 +408,7 @@
   /** 观星台两页切换：攻防榜 / 留言板（数据各自惰性加载）。 */
   function showBoardView(view) {
     state.boardView = view;
+    el.boardTitle.textContent = view === 'messages' ? '留言板' : '攻防榜';
     el.viewRanking.hidden = view !== 'ranking';
     el.viewMessages.hidden = view !== 'messages';
     el.boardEmpty.textContent = '';
@@ -436,7 +438,7 @@
     }
   });
 
-  /* ---------- 榜 · 观星台（份数榜前十） ---------- */
+  /* ---------- 榜 · 观星台（攻防榜前五十 / 留言板） ---------- */
 
   /** cells 元素可以是字符串（textContent 安全渲染）或已建好的 DOM 节点。 */
   function boardTable(headers, rows) {
@@ -755,7 +757,7 @@
       }
       if (el.recordDialog.close) el.recordDialog.close();
       pushNotice(data.outcome === 'written'
-        ? '已留言！到「榜 · 观星 → 言 · 留言板」可见你的名号。'
+        ? '已留言！到「榜 · 观星 → 留言板」可见你的名号。'
         : '留言已更新（一人一条，位置保留）。');
     } catch (e) {
       el.recordError.textContent = '网络错误：' + e.message;

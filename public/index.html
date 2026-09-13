@@ -6,7 +6,7 @@
   <title>攻心 · InjectArena — 乌托邦站内靶场（BYOK）</title>
   <!-- 静态资源带版本参数：CF Pages 对非 HTML 资源默认 max-age=14400（浏览器强缓存 4h），
        改了 app.js/style.css 必须 bump 这里的 v=，否则老访客 4 小时内看不到新逻辑 -->
-  <link rel="stylesheet" href="./style.css?v=20260913-9">
+  <link rel="stylesheet" href="./style.css?v=20260913-10">
 </head>
 <body>
   <header>
@@ -57,11 +57,11 @@
 
       <div id="board-panel" hidden>
         <div class="board-head">
-          <h2 class="board-title">榜 · 观星台</h2>
+          <h2 class="board-title" id="board-title">攻防榜</h2>
         </div>
 
         <div id="view-ranking">
-          <h3 class="board-sub">攻防榜<span class="muted">按总计份数排序取前五十，仅限 GitHub 登录者；破阵/考段完成即自动计入，相似度 ≥80% 视为同一份不重复计。</span></h3>
+          <h3 class="board-sub"><span class="muted">按总计份数排序取前五十，仅限 GitHub 登录者；破阵/考段完成即自动计入，相似度 ≥80% 视为同一份不重复计。</span></h3>
           <div id="board-ranking"></div>
         </div>
 
@@ -130,8 +130,8 @@
   <dialog id="record-dialog">
     <h2 id="record-title">破阵成功 · 留言</h2>
     <p id="record-summary" class="dialog-hint"></p>
-    <p id="record-login-hint" class="dialog-hint" hidden>留言与份数榜需要 <a href="/api/arena/auth/login">GitHub 登录</a>——登录后重新破阵即可计入。</p>
-    <label class="form-row"><span>留言（≤60 字，提交时间排序，可 later 用积分换位）</span><input id="record-message" maxlength="60" placeholder="留给后来者的一句话……"></label>
+    <p id="record-login-hint" class="dialog-hint" hidden>留言与攻防榜需要 <a href="/api/arena/auth/login">GitHub 登录</a>——登录后重新破阵即可计入。</p>
+    <label class="form-row"><span>留言（≤60 字，提交时间排序，可稍后用积分换位）</span><input id="record-message" maxlength="60" placeholder="留给后来者的一句话……"></label>
     <p id="record-error" class="dialog-error"></p>
     <div class="dialog-actions">
       <button id="record-submit" type="button" class="primary-btn">留言</button>
@@ -143,6 +143,6 @@
     判定为确定性代码，绝不用 LLM 当裁判 · BYOK：Key 只存你本机 · 经站内 Worker 中转 · 每 IP 限流 · 审计日志
   </footer>
 
-  <script src="./app.js?v=20260913-9"></script>
+  <script src="./app.js?v=20260913-10"></script>
 </body>
 </html>
