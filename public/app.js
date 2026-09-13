@@ -217,14 +217,33 @@
       var name = document.createElement('span');
       name.className = 'auth-name';
       name.textContent = state.session.login;
+      // 头像+名号即下拉触发键：退出收进菜单，点击外部由下方全局监听收起
+      var arrow = document.createElement('span');
+      arrow.className = 'auth-caret';
+      arrow.textContent = '▾';
+      var wrap = document.createElement('span');
+      wrap.className = 'auth-menu-wrap';
+      var trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'auth-trigger';
+      trigger.appendChild(img);
+      trigger.appendChild(name);
+      trigger.appendChild(arrow);
+      var menu = document.createElement('div');
+      menu.className = 'auth-menu';
+      menu.hidden = true;
       var out = document.createElement('button');
       out.type = 'button';
-      out.className = 'ghost-btn';
-      out.textContent = '退出';
-      out.addEventListener('click', logout);
-      el.authArea.appendChild(img);
-      el.authArea.appendChild(name);
-      el.authArea.appendChild(out);
+      out.textContent = '退出登录';
+      out.addEventListener('click', function () { logout(); });
+      menu.appendChild(out);
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        menu.hidden = !menu.hidden;
+      });
+      wrap.appendChild(trigger);
+      wrap.appendChild(menu);
+      el.authArea.appendChild(wrap);
     } else {
       var a = document.createElement('a');
       a.className = 'ghost-btn';
@@ -233,6 +252,16 @@
       el.authArea.appendChild(a);
     }
   }
+
+  // 账号下拉的「点击外部收起」：只注册一次（renderAuthArea 会被焦点同步反复重渲染，
+  // 监听挂在 document 上查最新节点，避免每次渲染都累加监听器）
+  document.addEventListener('click', function (e) {
+    var wrap = el.authArea.querySelector('.auth-menu-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      var menu = wrap.querySelector('.auth-menu');
+      if (menu && !menu.hidden) menu.hidden = true;
+    }
+  });
 
   var lastMeAt = 0;
 

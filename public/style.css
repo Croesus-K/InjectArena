@@ -457,7 +457,51 @@ header { flex-wrap: wrap; }
   vertical-align: middle;
 }
 
-.auth-name { font-size: 13px; color: var(--ink); margin-right: 2px; }
+.auth-name { font-size: 13px; color: var(--ink); }
+
+/* ---------- 账号下拉：退出藏在头像+名号的菜单里（对齐「榜 · 观星 ▾」视觉） ---------- */
+.auth-menu-wrap { position: relative; display: inline-block; }
+.auth-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-family: var(--sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+.auth-trigger:hover { border-color: rgba(224, 169, 94, 0.45); }
+.auth-caret { font-size: 10px; color: var(--ink-dim); }
+.auth-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 8em;
+  padding: 6px;
+  border: 1px solid rgba(224, 169, 94, 0.45);
+  border-radius: 8px;
+  background: #1b1d24;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.auth-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.auth-menu button:hover { background: rgba(224, 169, 94, 0.16); }
 
 /* 弹窗 */
 
