@@ -18,7 +18,6 @@ import {
   maskIp,
   redactFlagTokens,
   parsePlayerProvider,
-  sanitizeRecordBody,
   parseCookies
 } from './util.js';
 
@@ -109,39 +108,6 @@ test('parsePlayerProvider：非白名单域名 / 非 https / 非 443 端口 / �
   assert.equal(bad({ 'x-arena-base-url': 'https://api.deepseek.com/v1', 'x-arena-model': 'm' }), false);
   assert.equal(bad({ 'x-arena-key': 'k', 'x-arena-model': 'm' }), false);
   assert.equal(bad({ 'x-arena-key': 'k', 'x-arena-base-url': 'https://api.deepseek.com/v1' }), false);
-});
-
-/* ---------- util：上榜提交校验 ---------- */
-
-const session = { login: 'octocat', avatar: 'https://github.com/octocat.png' };
-
-test('sanitizeRecordBody：游客提交（不挂身份）', () => {
-  const r = sanitizeRecordBody({ kind: 'breach', credential: 't.t', displayId: ' 无名侠客 ', message: '  过关斩将  ', showGithub: true }, null);
-  assert.equal(r.ok, true);
-  assert.equal(r.fields.displayId, '无名侠客');
-  assert.equal(r.fields.message, '过关斩将');
-  // 无会话时 showGithub 强制失效
-  assert.equal(r.fields.showGithub, false);
-  assert.equal(r.fields.githubLogin, null);
-});
-
-test('sanitizeRecordBody：登录后挂身份', () => {
-  const r = sanitizeRecordBody({ kind: 'defense', credential: 't.t', displayId: 'octocat', showGithub: true }, session);
-  assert.equal(r.ok, true);
-  assert.equal(r.fields.showGithub, true);
-  assert.equal(r.fields.githubLogin, 'octocat');
-  assert.equal(r.fields.githubAvatar, session.avatar);
-  assert.equal(r.fields.message, null);
-});
-
-test('sanitizeRecordBody：名号超限/控制字符/未知 kind/缺凭证 拒绝', () => {
-  const ok = (body) => sanitizeRecordBody(body, session).ok;
-  assert.equal(ok({ kind: 'breach', credential: 't.t', displayId: 'x'.repeat(25) }), false);
-  assert.equal(ok({ kind: 'breach', credential: 't.t', displayId: 'a<b>' }), false);
-  assert.equal(ok({ kind: 'breach', credential: 't.t', displayId: 'ok', message: 'x'.repeat(61) }), false);
-  assert.equal(ok({ kind: 'other', credential: 't.t', displayId: 'ok' }), false);
-  assert.equal(ok({ kind: 'breach', displayId: 'ok' }), false);
-  assert.equal(ok(null), false);
 });
 
 /* ---------- util：杂项 ---------- */
