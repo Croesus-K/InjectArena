@@ -546,3 +546,32 @@ dialog h2 { font-family: var(--serif); letter-spacing: 2px; margin: 0 0 8px; fon
   font-weight: 700;
 }
 .swap-btn { font-size: 0.85em; }
+
+/* ---------- 「榜 · 观星」键上下拉菜单（v0.6.0） ---------- */
+.tab-wrap { position: relative; display: inline-block; }
+.board-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 9em;
+  padding: 6px;
+  border: 1px solid rgba(224, 169, 94, 0.45);
+  border-radius: 8px;
+  background: #1b1d24;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.board-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.board-menu button:hover { background: rgba(224, 169, 94, 0.16); }
