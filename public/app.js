@@ -295,7 +295,6 @@
       var card = document.createElement('button');
       card.className = 'level-card' + (lv.id === state.currentId ? ' active' : '');
       var meta = (SURFACE_NAMES[lv.attackSurface] || lv.attackSurface) + ' · 难度 ' + stars(lv.difficulty);
-      if (lv.bestBreach) meta += ' · 最短破阵 ' + lv.bestBreach.chars + ' 字';
       card.innerHTML =
         '<div class="level-title">' + lv.id + ' · ' + lv.name + '</div>' +
         '<div class="level-meta">' + meta + '</div>' +
@@ -315,7 +314,7 @@
       '<p class="brief"></p>' +
       '<p class="muted keeper">守阵者：你配置的模型（全关统一 · BYOK）' +
       (lv.tools && lv.tools.length ? ' · 持工具 ' + lv.tools.map(function (t) { return t.name; }).join('、') : '') +
-      (lv.bestBreach ? ' · 本阵最短破阵纪录 ' + lv.bestBreach.chars + ' 字' : '') + '</p>' +
+      '</p>' +
       '<details><summary>军师提示</summary><p class="hints"></p></details>';
     if (lv.lesson) el.levelHead.querySelector('.lesson').textContent = '考点 · ' + lv.lesson;
     el.levelHead.querySelector('.brief').textContent = lv.brief;
