@@ -10,7 +10,6 @@
 (function () {
   var API = '/api/arena';
   var CONFIG_KEY = 'arenaPlayerConfig';   // {baseUrl, model, key}
-  var DISPLAY_KEY = 'arenaDisplayName';   // 上次上榜用的名号
 
   var state = {
     levels: [],
@@ -22,8 +21,8 @@
     defenseBusy: false,
     config: null,       // {baseUrl, model, key} | null
     session: null,      // {login, avatar} | null
-    boardLevelId: null, // 观星台当前查看的关卡（每关榜单独立）
-    boardData: null     // 最近一次榜单请求缓存（切关不重新请求）
+    boardData: null,    // 份数榜缓存（attackRanking/defenseRanking）
+    messages: null      // 留言板缓存
   };
 
   var el = {
@@ -43,13 +42,16 @@
     tabAttack: document.getElementById('tab-attack'),
     tabDefense: document.getElementById('tab-defense'),
     tabBoard: document.getElementById('tab-board'),
+    tabMessages: document.getElementById('tab-messages'),
     attackPanel: document.getElementById('attack-panel'),
     defensePanel: document.getElementById('defense-panel'),
     boardPanel: document.getElementById('board-panel'),
-    boardLevelSelect: document.getElementById('board-level'),
+    messagesPanel: document.getElementById('messages-panel'),
     boardAttack: document.getElementById('board-attack'),
     boardDefense: document.getElementById('board-defense'),
     boardEmpty: document.getElementById('board-empty'),
+    messagesList: document.getElementById('messages-list'),
+    meStats: document.getElementById('me-stats'),
     defenseLevelName: document.getElementById('defense-level-name'),
     defensePrompt: document.getElementById('defense-prompt'),
     rejectMarker: document.getElementById('reject-marker'),
@@ -70,10 +72,9 @@
     recordDialog: document.getElementById('record-dialog'),
     recordTitle: document.getElementById('record-title'),
     recordSummary: document.getElementById('record-summary'),
-    recordId: document.getElementById('record-id'),
+    recordSubmit: document.getElementById('record-submit'),
+    recordLoginHint: document.getElementById('record-login-hint'),
     recordMessage: document.getElementById('record-message'),
-    recordGithubRow: document.getElementById('record-github-row'),
-    recordGithub: document.getElementById('record-github'),
     recordError: document.getElementById('record-error')
   };
 
@@ -236,10 +237,25 @@
       var res = await fetch(API + '/auth/me');
       var data = await res.json();
       state.session = data.login ? { login: data.login, avatar: data.avatarUrl } : null;
+      state.stats = data.stats || null;
     } catch (_) {
       state.session = null;
+      state.stats = null;
     }
     renderAuthArea();
+    renderMeStats();
+  }
+
+  /** 「我」的等级与积分：等级 = 有效语料份数（攻+守，只增）；积分可消费（换位扣）。 */
+  function renderMeStats() {
+    if (!el.meStats) return;
+    if (state.session && state.stats) {
+      el.meStats.textContent = state.session.login + ' · 等级 ' + state.stats.level + ' · 积分 ' + state.stats.score;
+    } else if (state.session) {
+      el.meStats.textContent = state.session.login + ' · 尚无语料份数';
+    } else {
+      el.meStats.textContent = '未登录 GitHub —— 份数榜与留言需要登录';
+    }
   }
 
   async function logout() {
@@ -325,12 +341,6 @@
       var node = debriefElement(lv, false);
       if (node) el.levelHead.appendChild(node);
     }
-    // 榜单按关独立：观星台开着时切阵，榜单跟随
-    if (state.mode === 'board' && state.boardLevelId !== id) {
-      state.boardLevelId = id;
-      renderBoardLevelSelect();
-      renderBoard();
-    }
     el.input.focus();
   }
 
@@ -384,36 +394,23 @@
     el.tabAttack.className = 'tab' + (mode === 'attack' ? ' active' : '');
     el.tabDefense.className = 'tab' + (mode === 'defense' ? ' active' : '');
     el.tabBoard.className = 'tab' + (mode === 'board' ? ' active' : '');
+    el.tabMessages.className = 'tab' + (mode === 'messages' ? ' active' : '');
     el.attackPanel.hidden = mode !== 'attack';
     el.defensePanel.hidden = mode !== 'defense';
     el.boardPanel.hidden = mode !== 'board';
-    if (mode === 'board') {
-      // 每关榜单独立：首次进入跟随当前阵，之后保留上次查看的关卡
-      if (!state.boardLevelId) state.boardLevelId = state.currentId;
-      renderBoardLevelSelect();
-      loadBoard();
-    }
+    el.messagesPanel.hidden = mode !== 'messages';
+    if (mode === 'board') loadBoard();
+    if (mode === 'messages') loadMessages();
   }
 
   el.tabAttack.addEventListener('click', function () { switchMode('attack'); });
   el.tabDefense.addEventListener('click', function () { switchMode('defense'); });
   el.tabBoard.addEventListener('click', function () { switchMode('board'); });
+  el.tabMessages.addEventListener('click', function () { switchMode('messages'); });
 
-  /* ---------- 榜 · 观星台（每关榜单独立） ---------- */
+  /* ---------- 榜 · 观星台（份数榜前十） ---------- */
 
-  function renderBoardLevelSelect() {
-    el.boardLevelSelect.innerHTML = '';
-    state.levels.forEach(function (lv) {
-      var opt = document.createElement('option');
-      opt.value = lv.id;
-      opt.textContent = lv.id + ' · ' + lv.name;
-      el.boardLevelSelect.appendChild(opt);
-    });
-    if (!state.boardLevelId && state.levels.length) state.boardLevelId = state.levels[0].id;
-    el.boardLevelSelect.value = state.boardLevelId || '';
-  }
-
-  /** cells 元素可以是字符串（textContent 安全渲染）或已建好的 DOM 节点（头像/留言富展示）。 */
+  /** cells 元素可以是字符串（textContent 安全渲染）或已建好的 DOM 节点。 */
   function boardTable(headers, rows) {
     var table = document.createElement('table');
     table.className = 'board-table';
@@ -441,34 +438,6 @@
     return table;
   }
 
-  function playerCell(r) {
-    var wrap = document.createElement('span');
-    wrap.className = 'player-cell';
-    if (r.githubLogin && r.githubAvatar) {
-      var img = document.createElement('img');
-      img.className = 'board-avatar';
-      img.src = r.githubAvatar;
-      img.alt = '';
-      img.referrerPolicy = 'no-referrer';
-      wrap.appendChild(img);
-      var gh = document.createElement('span');
-      gh.textContent = r.player + '（' + r.githubLogin + '）';
-      wrap.appendChild(gh);
-    } else {
-      var name = document.createElement('span');
-      name.textContent = r.player;
-      wrap.appendChild(name);
-    }
-    return wrap;
-  }
-
-  function messageCell(text) {
-    var span = document.createElement('span');
-    span.className = 'board-msg';
-    span.textContent = text || '';
-    return span;
-  }
-
   function shortTs(ts) {
     return typeof ts === 'string' ? ts.slice(0, 16).replace('T', ' ') : '';
   }
@@ -485,53 +454,35 @@
     }
   }
 
-  /** 每关榜单独立：只渲染 boardLevelId 这一关的攻/守两榜（数据一次拉取，切关零请求）。 */
+  /** 份数榜（v0.6.0）：有效语料份数前十，仅 GitHub 登录者。 */
   function renderBoard() {
     el.boardAttack.innerHTML = '';
     el.boardDefense.innerHTML = '';
     el.boardEmpty.textContent = '';
     if (!state.boardData) return;
-    var levelId = state.boardLevelId;
-    var lvName = '';
-    state.levels.forEach(function (lv) { if (lv.id === levelId) lvName = lv.id + ' · ' + lv.name; });
+    var attack = state.boardData.attackRanking || [];
+    var defense = state.boardData.defenseRanking || [];
 
-    var attackRows = (state.boardData.attack || []).filter(function (r) { return r.levelId === levelId; });
-    if (attackRows.length) {
+    if (attack.length) {
       el.boardAttack.appendChild(boardTable(
-        ['名号', '留言', '最短', 'token', '时间'],
-        attackRows.map(function (r) {
-          return [playerCell(r), messageCell(r.message), r.chars + ' 字', r.tokens || '-', shortTs(r.ts)];
-        })
+        ['名号', '份数', '积分'],
+        attack.map(function (r, i) { return [rankName(i + 1, r.login), r.count, r.score]; })
       ));
     }
-
-    var defenseRows = (state.boardData.defense || []).filter(function (r) { return r.levelId === levelId; });
-    if (defenseRows.length) {
+    if (defense.length) {
       el.boardDefense.appendChild(boardTable(
-        ['名号', '留言', '拦截率', '泄露率', '误杀率', '样本', '时间'],
-        defenseRows.map(function (r) {
-          return [
-            playerCell(r),
-            messageCell(r.message),
-            Math.round(r.blockRate * 1000) / 10 + '%',
-            Math.round(r.leakRate * 1000) / 10 + '%',
-            r.fpRate === null || r.fpRate === undefined ? '-' : Math.round(r.fpRate * 1000) / 10 + '%',
-            r.evaluated,
-            shortTs(r.ts)
-          ];
-        })
+        ['名号', '份数', '积分'],
+        defense.map(function (r, i) { return [rankName(i + 1, r.login), r.count, r.score]; })
       ));
     }
-
-    if (!attackRows.length && !defenseRows.length) {
-      el.boardEmpty.textContent = (lvName || levelId || '此阵') + '虚位以待——破一阵、考一段，名字便上来了。';
+    if (!attack.length && !defense.length) {
+      el.boardEmpty.textContent = '虚位以待——破阵、考段即自动计入（需 GitHub 登录）。';
     }
   }
 
-  el.boardLevelSelect.addEventListener('change', function () {
-    state.boardLevelId = el.boardLevelSelect.value;
-    renderBoard();
-  });
+  function rankName(rank, login) {
+    return '#' + rank + ' ' + login;
+  }
 
   /* ---------- 攻侧：聊天与判定 ---------- */
 
@@ -643,7 +594,7 @@
     el.send.textContent = b ? '运功中…' : '出 招';
   }
 
-  /* ---------- 上榜弹窗（凭证兑换） ---------- */
+  /* ---------- 留言弹窗（破阵/考段凭证兑换为留言；份数已自动计入） ---------- */
 
   var pendingRecord = null; // {kind, credential, level}
 
@@ -651,36 +602,31 @@
     pendingRecord = info;
     el.recordError.textContent = '';
     var isBreach = info.kind === 'breach';
-    el.recordTitle.textContent = isBreach ? '破阵成功 · 上榜' : '考段完成 · 上榜';
+    el.recordTitle.textContent = isBreach ? '破阵成功 · 留言' : '考段完成 · 留言';
     el.recordSummary.textContent = isBreach
       ? info.level.id + ' · ' + info.level.name + ' —— 本招 ' + info.credential.chars + ' 字' +
-        (info.credential.tokens ? ' / ' + info.credential.tokens + ' token' : '') + '。兑换上榜需在 2 小时内完成。'
-      : info.level.id + ' · ' + info.level.name + ' —— 拦截率 ' + Math.round(info.credential.blockRate * 1000) / 10 + '%（样本 ' + info.credential.blockRate_sampleCount + '）。兑换上榜需在 2 小时内完成。';
-    el.recordId.value = localStorage.getItem(DISPLAY_KEY) || (state.session ? state.session.login : '');
+        (info.credential.tokens ? ' / ' + info.credential.tokens + ' token' : '') + '。份数已自动计入（登录者），留言凭证 2 小时内有效。'
+      : info.level.id + ' · ' + info.level.name + ' —— 拦截率 ' + Math.round(info.credential.blockRate * 1000) / 10 + '%。布防份数已自动计入（登录者），留言凭证 2 小时内有效。';
+    el.recordLoginHint.hidden = Boolean(state.session);
     el.recordMessage.value = '';
-    el.recordGithubRow.hidden = !state.session;
-    el.recordGithub.checked = Boolean(state.session);
+    el.recordSubmit.disabled = !state.session;
     if (el.recordDialog.showModal) el.recordDialog.showModal();
   }
 
   document.getElementById('record-submit').addEventListener('click', async function () {
     if (!pendingRecord) return;
-    var displayId = el.recordId.value.trim();
-    if (!displayId) {
-      el.recordError.textContent = '榜上名号不能为空。';
+    var message = el.recordMessage.value.trim();
+    if (!message) {
+      el.recordError.textContent = '留言不能为空。';
       return;
     }
-    localStorage.setItem(DISPLAY_KEY, displayId);
     try {
-      var res = await fetch(API + '/records', {
+      var res = await fetch(API + '/board', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          kind: pendingRecord.kind,
           credential: pendingRecord.credential.token,
-          displayId: displayId,
-          message: el.recordMessage.value.trim() || undefined,
-          showGithub: state.session && el.recordGithub.checked
+          message: message
         })
       });
       var data = await res.json();
@@ -690,10 +636,8 @@
       }
       if (el.recordDialog.close) el.recordDialog.close();
       pushNotice(data.outcome === 'written'
-        ? '已上榜！切到「榜 · 观星」可见你的名号。'
-        : '榜上已有你更短/更优的纪录，本次未覆盖。');
-      refreshLevels();
-      if (state.mode === 'board') loadBoard();
+        ? '已留言！切到「言 · 留言板」可见你的名号。'
+        : '留言已更新（一人一条，位置保留）。');
     } catch (e) {
       el.recordError.textContent = '网络错误：' + e.message;
     }
