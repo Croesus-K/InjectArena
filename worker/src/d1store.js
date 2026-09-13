@@ -256,24 +256,15 @@ export async function insertDefenseCorpus(db, record, isSimilarToAny) {
   return 'written';
 }
 
-/** 攻方份数榜前十：按有效破阵语料份数降序。 */
-export async function listAttackRanking(db) {
+/** 攻防榜：按总计份数（破阵+考段）降序取前五十。 */
+export async function listRanking(db, limit) {
   const out = await db
     .prepare(
-      'SELECT github_login AS login, breach_count AS count, score FROM player_stats ' +
-        'WHERE breach_count > 0 ORDER BY breach_count DESC, score DESC, ts ASC LIMIT 10'
+      'SELECT github_login AS login, breach_count AS breachCount, defense_count AS defenseCount, ' +
+        'breach_count + defense_count AS total, score FROM player_stats ' +
+        'WHERE breach_count + defense_count > 0 ORDER BY total DESC, score DESC, ts ASC LIMIT ?'
     )
-    .all();
-  return out.results || [];
-}
-
-/** 守方份数榜前十。 */
-export async function listDefenseRanking(db) {
-  const out = await db
-    .prepare(
-      'SELECT github_login AS login, defense_count AS count, score FROM player_stats ' +
-        'WHERE defense_count > 0 ORDER BY defense_count DESC, score DESC, ts ASC LIMIT 10'
-    )
+    .bind(limit || 50)
     .all();
   return out.results || [];
 }

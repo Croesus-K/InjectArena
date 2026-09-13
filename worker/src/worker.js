@@ -207,9 +207,8 @@ async function getLeaderboard(request, env) {
     });
   }
   return jsonResponse({
-    // 份数榜（v0.6.0）：有效语料份数前十，仅 GitHub 登录者——破阵/考段完成即自动计入
-    attackRanking: await store.listAttackRanking(env.DB),
-    defenseRanking: await store.listDefenseRanking(env.DB),
+    // 攻防榜（v0.6.0）：按总计份数排序前五十，仅 GitHub 登录者——破阵/考段完成即自动计入
+    ranking: await store.listRanking(env.DB, 50),
     // 旧口径（最短招式 / 最高拦截率）保留输出，兼容旧前端与历史展示
     attack: await store.listBreachRecords(env.DB, 100),
     defense: await store.listDefenseRecords(env.DB, 100)
@@ -228,23 +227,16 @@ function boardEntryRow(row, rankByLogin) {
     message: row.message,
     position: row.position,
     ts: row.ts,
-    // 用户若在任一份数榜前十，名号前显示更优的榜排
-    rank: rank || null
+    // 用户若在攻防榜前五十，名号前显示榜排
+    rank: rank ? rank.rank : null
   };
 }
 
 async function getBoard(request, env) {
   const rows = await store.listBoard(env.DB);
-  const [attackRanking, defenseRanking] = await Promise.all([
-    store.listAttackRanking(env.DB),
-    store.listDefenseRanking(env.DB)
-  ]);
+  const ranking = await store.listRanking(env.DB, 50);
   const rankByLogin = new Map();
-  attackRanking.forEach((r, i) => { if (!rankByLogin.has(r.login)) rankByLogin.set(r.login, { board: 'attack', rank: i + 1 }); });
-  defenseRanking.forEach((r, i) => {
-    const cur = rankByLogin.get(r.login);
-    if (!cur || i + 1 < cur.rank) rankByLogin.set(r.login, { board: 'defense', rank: i + 1 });
-  });
+  ranking.forEach((r, i) => { if (!rankByLogin.has(r.login)) rankByLogin.set(r.login, { rank: i + 1 }); });
   return jsonResponse({ entries: rows.map((r) => boardEntryRow(r, rankByLogin)) });
 }
 
@@ -761,8 +753,8 @@ async function authMe(request, env) {
   return jsonResponse({
     login: session ? session.login : null,
     avatarUrl: session ? session.avatar : null,
-    // 等级 = 有效语料份数（攻+守，只增）；积分 = 可消费余额（换位扣）
-    stats: stats ? { level: stats.breachCount + stats.defenseCount, score: stats.score } : null
+    // 等级设定已取消：返回攻/防份数与可消费积分（换位扣）
+    stats: stats ? { breachCount: stats.breachCount, defenseCount: stats.defenseCount, score: stats.score } : null
   });
 }
 

@@ -22,7 +22,7 @@
     config: null,       // {baseUrl, model, key} | null
     session: null,      // {login, avatar} | null
     boardData: null,    // 份数榜缓存（attackRanking/defenseRanking）
-    boardView: 'attack',// 观星台当前页：attack | defense | messages
+    boardView: 'ranking',// 观星台当前页：ranking（攻防榜） | messages（留言板）
     messages: null      // 留言板缓存
   };
 
@@ -46,12 +46,10 @@
     attackPanel: document.getElementById('attack-panel'),
     defensePanel: document.getElementById('defense-panel'),
     boardPanel: document.getElementById('board-panel'),
-    boardView: document.getElementById('board-view'),
-    viewAttack: document.getElementById('view-attack'),
-    viewDefense: document.getElementById('view-defense'),
+    boardMenu: document.getElementById('board-menu'),
+    viewRanking: document.getElementById('view-ranking'),
     viewMessages: document.getElementById('view-messages'),
-    boardAttack: document.getElementById('board-attack'),
-    boardDefense: document.getElementById('board-defense'),
+    boardRanking: document.getElementById('board-ranking'),
     boardEmpty: document.getElementById('board-empty'),
     messagesList: document.getElementById('messages-list'),
     meStats: document.getElementById('me-stats'),
@@ -253,7 +251,7 @@
   function renderMeStats() {
     if (!el.meStats) return;
     if (state.session && state.stats) {
-      el.meStats.textContent = state.session.login + ' · 等级 ' + state.stats.level + ' · 积分 ' + state.stats.score;
+      el.meStats.textContent = state.session.login + ' · 攻 ' + state.stats.breachCount + ' / 防 ' + state.stats.defenseCount + ' · 积分 ' + state.stats.score;
     } else if (state.session) {
       el.meStats.textContent = state.session.login + ' · 尚无语料份数';
     } else {
@@ -407,21 +405,37 @@
   el.tabDefense.addEventListener('click', function () { switchMode('defense'); });
   el.tabBoard.addEventListener('click', function () { switchMode('board'); });
 
-  /** 观星台三页切换：攻榜 / 守榜 / 留言板（数据各自惰性加载）。 */
+  /** 观星台两页切换：攻防榜 / 留言板（数据各自惰性加载）。 */
   function showBoardView(view) {
     state.boardView = view;
-    el.boardView.value = view;
-    el.viewAttack.hidden = view !== 'attack';
-    el.viewDefense.hidden = view !== 'defense';
+    el.viewRanking.hidden = view !== 'ranking';
     el.viewMessages.hidden = view !== 'messages';
     el.boardEmpty.textContent = '';
-    if (view === 'attack' || view === 'defense') {
+    if (view === 'ranking') {
       if (!state.boardData) loadBoard(); else renderBoard();
     } else {
       loadMessages();
     }
   }
-  el.boardView.addEventListener('change', function () { showBoardView(el.boardView.value); });
+
+  // 「榜 · 观星」键即入口：点击弹出下拉菜单（攻防榜 / 留言板）
+  el.tabBoard.addEventListener('click', function (e) {
+    e.stopPropagation();
+    el.boardMenu.hidden = !el.boardMenu.hidden;
+  });
+  Array.prototype.forEach.call(el.boardMenu.querySelectorAll('button[data-view]'), function (btn) {
+    btn.addEventListener('click', function () {
+      el.boardMenu.hidden = true;
+      var view = btn.getAttribute('data-view');
+      if (state.mode !== 'board') switchMode('board');
+      showBoardView(view);
+    });
+  });
+  document.addEventListener('click', function (e) {
+    if (!el.boardMenu.hidden && !el.boardMenu.contains(e.target) && e.target !== el.tabBoard) {
+      el.boardMenu.hidden = true;
+    }
+  });
 
   /* ---------- 榜 · 观星台（份数榜前十） ---------- */
 
@@ -471,21 +485,18 @@
 
   /** 份数榜（v0.6.0）：有效语料份数前十，仅 GitHub 登录者。 */
   function renderBoard() {
-    el.boardAttack.innerHTML = '';
-    el.boardDefense.innerHTML = '';
+    el.boardRanking.innerHTML = '';
     el.boardEmpty.textContent = '';
     if (!state.boardData) return;
-    var isAttack = state.boardView === 'attack';
-    var rows = isAttack ? (state.boardData.attackRanking || []) : (state.boardData.defenseRanking || []);
-    var host = isAttack ? el.boardAttack : el.boardDefense;
+    var rows = state.boardData.ranking || [];
 
     if (rows.length) {
-      host.appendChild(boardTable(
-        ['名号', '份数', '积分'],
-        rows.map(function (r, i) { return [rankName(i + 1, r.login), r.count, r.score]; })
+      el.boardRanking.appendChild(boardTable(
+        ['名号', '攻', '防', '总计', '积分'],
+        rows.map(function (r, i) { return [rankName(i + 1, r.login), r.breachCount, r.defenseCount, r.total, r.score]; })
       ));
     } else {
-      el.boardEmpty.textContent = '虚位以待——' + (isAttack ? '破阵' : '考段') + '即自动计入（需 GitHub 登录）。';
+      el.boardEmpty.textContent = '虚位以待——破阵、考段即自动计入（需 GitHub 登录）。';
     }
   }
 
@@ -601,6 +612,107 @@
     state.busy = b;
     el.send.disabled = b;
     el.send.textContent = b ? '运功中…' : '出 招';
+  }
+
+  /* ---------- 言 · 留言板：破阵/考段凭证留言，提交时间序，积分换位 ---------- */
+
+  async function loadMessages() {
+    el.messagesList.innerHTML = '<p class="muted">加载中……</p>';
+    try {
+      state.messages = await (await fetch(API + '/board')).json();
+      renderMessages();
+    } catch (e) {
+      el.messagesList.innerHTML = '<p class="muted">留言板加载失败：' + e.message + '</p>';
+    }
+    renderMeStats();
+  }
+
+  function renderMessages() {
+    el.messagesList.innerHTML = '';
+    var entries = (state.messages && state.messages.entries) || [];
+    if (!entries.length) {
+      el.messagesList.innerHTML = '<p class="muted">还没有留言——破一阵，留下你的名号。</p>';
+      return;
+    }
+    var table = document.createElement('table');
+    table.className = 'board-table messages-table';
+    var thead = document.createElement('thead');
+    var trh = document.createElement('tr');
+    ['序', '名号', '留言', '时间', ''].forEach(function (h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    entries.forEach(function (entry) {
+      var tr = document.createElement('tr');
+
+      var tdPos = document.createElement('td');
+      tdPos.className = 'msg-pos';
+      tdPos.textContent = entry.position;
+      tr.appendChild(tdPos);
+
+      var tdName = document.createElement('td');
+      tdName.className = 'msg-name';
+      if (entry.rank) {
+        var badge = document.createElement('span');
+        badge.className = 'rank-badge';
+        badge.textContent = '#' + entry.rank;
+        badge.title = '攻防榜第 ' + entry.rank + ' 名';
+        tdName.appendChild(badge);
+      }
+      tdName.appendChild(document.createTextNode(entry.displayName));
+      tr.appendChild(tdName);
+
+      var tdMsg = document.createElement('td');
+      tdMsg.className = 'board-msg';
+      tdMsg.textContent = entry.message;
+      tr.appendChild(tdMsg);
+
+      var tdTs = document.createElement('td');
+      tdTs.className = 'muted';
+      tdTs.textContent = shortTs(entry.ts);
+      tr.appendChild(tdTs);
+
+      var tdOp = document.createElement('td');
+      if (state.session && state.session.login === entry.login) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ghost-btn swap-btn';
+        btn.textContent = '换位';
+        btn.title = '与目标位置的留言互换，隔几位扣几分';
+        btn.addEventListener('click', function () { swapMessage(entry); });
+        tdOp.appendChild(btn);
+      }
+      tr.appendChild(tdOp);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    el.messagesList.appendChild(table);
+  }
+
+  /** 换位：与目标序列号的留言互换，扣 |Δ| 积分。目标序号用行内输入，避免弹窗。 */
+  function swapMessage(entry) {
+    var target = window.prompt('换到第几号？（当前第 ' + entry.position + ' 位；与目标隔几位就扣几分）', String(entry.position - 1));
+    if (target === null) return;
+    var targetPos = parseInt(target, 10);
+    if (!Number.isInteger(targetPos) || targetPos === entry.position) return;
+    var targetEntry = ((state.messages || {}).entries || []).find(function (e) { return e.position === targetPos; });
+    if (!targetEntry) { alert('找不到第 ' + targetPos + ' 号留言。'); return; }
+    fetch(API + '/board/swap', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ targetId: targetEntry.id })
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) { alert(res.d.error || '换位失败'); return; }
+        pushNotice('换位成功，消耗 ' + res.d.delta + ' 积分。');
+        loadMessages();
+      })
+      .catch(function (e) { alert('网络错误：' + e.message); });
   }
 
   /* ---------- 留言弹窗（破阵/考段凭证兑换为留言；份数已自动计入） ---------- */
