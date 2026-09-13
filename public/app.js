@@ -234,7 +234,10 @@
     }
   }
 
+  var lastMeAt = 0;
+
   async function loadMe() {
+    lastMeAt = Date.now();
     try {
       var res = await fetch(API + '/auth/me');
       var data = await res.json();
@@ -269,6 +272,17 @@
     if (clearKey) clearPlayerConfig();
     renderAuthArea();
   }
+
+  // 登录态自动同步：其他页签登录成功（BroadcastChannel 通知）或切回本页签
+  // （focus/visibilitychange，30s 节流）时重查 /auth/me，右上角随之上新
+  var authChannel = window.BroadcastChannel ? new BroadcastChannel('arena-auth') : null;
+  if (authChannel) authChannel.onmessage = function () { loadMe(); };
+  window.addEventListener('focus', function () {
+    if (Date.now() - lastMeAt >= 30000) loadMe();
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && Date.now() - lastMeAt >= 30000) loadMe();
+  });
 
   /* ---------- 阵法列表 ---------- */
 
@@ -1037,14 +1051,26 @@
     state.config = loadPlayerConfig();
     renderHealth();
 
-    // GitHub 登录回跳参数（?login=ok|error）——提示后清掉，避免刷新重复提示
-    var params = new URLSearchParams(location.search);
-    if (params.get('login') === 'ok') pushNotice('GitHub 登录成功——破阵上榜可挂你的头像与用户名了。');
-    if (params.get('login') === 'error') pushNotice('GitHub 登录失败，可重试；不登录也能正常闯关上榜。');
-    if (params.has('login')) history.replaceState(null, '', location.pathname);
+    // GitHub 登录回跳参数（?login=ok|error）——提示后清掉，避免刷新重复提示。
+    // 提示必须放在 refreshLevels 之后：init 自动 selectLevel 会清空 notice，先提示会一闪而过
+    var loginResult = new URLSearchParams(location.search).get('login');
+    if (loginResult) history.replaceState(null, '', location.pathname);
 
     await loadMe();
+    if (loginResult === 'ok' && authChannel) authChannel.postMessage('login');
+    if (loginResult === 'ok' && !state.session) {
+      // Cookie 写入与回跳间偶有时序差：补查一次，仍无再走提示
+      await new Promise(function (r) { setTimeout(r, 800); });
+      await loadMe();
+    }
     await refreshLevels();
+
+    if (loginResult === 'ok') {
+      pushNotice(state.session
+        ? 'GitHub 登录成功（' + state.session.login + '）——右上角已挂账号与头像。'
+        : 'GitHub 授权已完成，但本页暂未检测到登录态——请刷新一次；若仍显示「GitHub 登录」，检查浏览器是否禁用了 Cookie。');
+    }
+    if (loginResult === 'error') pushNotice('GitHub 登录失败，可重试；不登录也能正常闯关上榜。');
 
     try {
       var h = await (await fetch(API + '/health')).json();
