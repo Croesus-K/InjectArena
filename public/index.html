@@ -6,7 +6,7 @@
   <title>攻心 · InjectArena — 乌托邦站内靶场（BYOK）</title>
   <!-- 静态资源带版本参数：CF Pages 对非 HTML 资源默认 max-age=14400（浏览器强缓存 4h），
        改了 app.js/style.css 必须 bump 这里的 v=，否则老访客 4 小时内看不到新逻辑 -->
-  <link rel="stylesheet" href="./style.css?v=20260913-3">
+  <link rel="stylesheet" href="./style.css?v=20260913-4">
 </head>
 <body>
   <header>
@@ -32,6 +32,7 @@
         <button id="tab-attack" class="tab active" type="button">攻 · 破阵</button>
         <button id="tab-defense" class="tab" type="button">守 · 布防</button>
         <button id="tab-board" class="tab" type="button">榜 · 观星</button>
+        <button id="tab-messages" class="tab" type="button">言 · 留言板</button>
       </div>
 
       <div id="attack-panel">
@@ -52,13 +53,21 @@
       <div id="board-panel" hidden>
         <div class="board-head">
           <h2 class="board-title">榜 · 观星台</h2>
-          <select id="board-level" aria-label="切换关卡榜单"></select>
         </div>
-        <h3 class="board-sub">名将榜 · 攻<span class="muted">每关最短破阵纪录，更短者覆盖；名号自填，可挂 GitHub 身份，可留一句话。</span></h3>
+        <h3 class="board-sub">份数榜 · 攻<span class="muted">有效破阵语料份数前十，仅限 GitHub 登录者；破阵即自动计入，相似度 ≥80% 视为同一份不重复计。</span></h3>
         <div id="board-attack"></div>
-        <h3 class="board-sub">段位榜 · 守<span class="muted">拦截率优先，同率取样本更大者；「误杀」列为带误杀判定的考段。</span></h3>
+        <h3 class="board-sub">份数榜 · 守<span class="muted">有效守阵布防份数前十；考段完成即自动计入，布防相似度 ≥80% 视为同一份。</span></h3>
         <div id="board-defense"></div>
         <div id="board-empty" class="muted"></div>
+      </div>
+
+      <div id="messages-panel" hidden>
+        <div class="board-head">
+          <h2 class="board-title">言 · 留言板</h2>
+          <span id="me-stats" class="muted"></span>
+        </div>
+        <p class="muted board-note">破阵或考段成功后可留名留言（需 GitHub 登录），按提交时间排序。想插队？可消耗积分与目标位置的留言互换：隔几位扣几分，等级不变。名号前 #N 表示份数榜排名。</p>
+        <div id="messages-list"></div>
       </div>
 
       <div id="defense-panel" hidden>
@@ -111,17 +120,16 @@
     </div>
   </dialog>
 
-  <!-- 破阵/考段上榜：凭证由服务端签发，此处自填名号兑换 -->
+  <!-- 破阵/考段留言：凭证由服务端签发（2h），留言进留言板；份数已自动计入无需手动上榜 -->
   <dialog id="record-dialog">
-    <h2 id="record-title">破阵成功 · 上榜</h2>
+    <h2 id="record-title">破阵成功 · 留言</h2>
     <p id="record-summary" class="dialog-hint"></p>
-    <label class="form-row"><span>榜上名号（自填，≤24 字）</span><input id="record-id" maxlength="24" placeholder="留名……"></label>
-    <label class="form-row"><span>一句话留言（可选，≤60 字）</span><input id="record-message" maxlength="60" placeholder="留给后来者的一句话……"></label>
-    <label id="record-github-row" class="check-row" hidden><input type="checkbox" id="record-github" checked><span>挂上 GitHub 身份（榜单展示头像与用户名）</span></label>
+    <p id="record-login-hint" class="dialog-hint" hidden>留言与份数榜需要 <a href="/api/arena/auth/login">GitHub 登录</a>——登录后重新破阵即可计入。</p>
+    <label class="form-row"><span>留言（≤60 字，提交时间排序，可 later 用积分换位）</span><input id="record-message" maxlength="60" placeholder="留给后来者的一句话……"></label>
     <p id="record-error" class="dialog-error"></p>
     <div class="dialog-actions">
-      <button id="record-submit" type="button" class="primary-btn">上榜</button>
-      <button id="record-skip" type="button" class="ghost-btn">本次不上榜</button>
+      <button id="record-submit" type="button" class="primary-btn">留言</button>
+      <button id="record-skip" type="button" class="ghost-btn">本次不留</button>
     </div>
   </dialog>
 
@@ -129,6 +137,6 @@
     判定为确定性代码，绝不用 LLM 当裁判 · BYOK：Key 只存你本机 · 经站内 Worker 中转 · 每 IP 限流 · 审计日志
   </footer>
 
-  <script src="./app.js?v=20260913-3"></script>
+  <script src="./app.js?v=20260913-4"></script>
 </body>
 </html>
