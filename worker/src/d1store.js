@@ -132,6 +132,36 @@ export async function upsertDefenseRecord(db, record) {
   return res.meta && res.meta.changes > 0 ? 'written' : 'kept';
 }
 
+/**
+ * 未上榜破阵落库（破阵判定 passed 即录，与上榜解耦）：语料回流专属，匿名——
+ * 不存 player/actor/IP；同一关同一条 payload 幂等跳过，重复刷不膨胀。
+ * @returns {Promise<'written'|'duplicate'>}
+ */
+export async function insertUnclaimedBreach(db, record) {
+  const dup = await db
+    .prepare('SELECT 1 FROM breach_unclaimed WHERE level_id = ? AND payload_text = ? LIMIT 1')
+    .bind(record.levelId, record.payloadText)
+    .first();
+  if (dup) return 'duplicate';
+  await db
+    .prepare('INSERT INTO breach_unclaimed (level_id, payload_text, chars, tokens, ts) VALUES (?, ?, ?, ?, ?)')
+    .bind(record.levelId, record.payloadText, record.chars, n(record.tokens), record.ts)
+    .run();
+  return 'written';
+}
+
+/** 未上榜破阵导出（含 payload 明文）：只服务 /leaderboard?format=export，导出边缘统一打码。 */
+export async function listUnclaimedBreaches(db, limit) {
+  const out = await db
+    .prepare(
+      'SELECT level_id AS levelId, payload_text AS payloadText, chars, tokens, ts ' +
+        'FROM breach_unclaimed ORDER BY ts ASC LIMIT ?'
+    )
+    .bind(limit || 200)
+    .all();
+  return out.results || [];
+}
+
 /** 名将榜：按关卡分组、字符升序（不含 payload 明文）。 */
 export async function listBreachRecords(db, limit) {
   const out = await db
@@ -171,4 +201,139 @@ export async function listDefenseRecords(db, limit) {
     .bind(limit || 50)
     .all();
   return out.results || [];
+}
+
+// ---------------------------------------------------------------------------
+// 份数榜与留言板（v0.6.0）
+// ---------------------------------------------------------------------------
+
+/** 玩家统计 upsert：增量更新份数与积分（delta 可为负——换位扣分）。 */
+export async function addPlayerStats(db, login, { breachDelta = 0, defenseDelta = 0, scoreDelta = 0 } = {}) {
+  await db
+    .prepare(
+      'INSERT INTO player_stats (github_login, breach_count, defense_count, score, ts) VALUES (?, ?, ?, ?, ?) ' +
+        'ON CONFLICT(github_login) DO UPDATE SET ' +
+        'breach_count = breach_count + excluded.breach_count, ' +
+        'defense_count = defense_count + excluded.defense_count, ' +
+        'score = score + excluded.score, ts = excluded.ts'
+    )
+    .bind(login, breachDelta, defenseDelta, scoreDelta, new Date().toISOString())
+    .run();
+}
+
+export async function getPlayerStats(db, login) {
+  return await db
+    .prepare('SELECT github_login AS login, breach_count AS breachCount, defense_count AS defenseCount, score FROM player_stats WHERE github_login = ?')
+    .bind(login)
+    .first();
+}
+
+/** 攻方语料登记：同 login 同 level 内相似度 ≥0.8 视为同一份，返回 'written' | 'duplicate'。 */
+export async function insertBreachCorpus(db, record, isSimilarToAny) {
+  const rows = await db
+    .prepare('SELECT payload_text FROM breach_corpus WHERE github_login = ? AND level_id = ?')
+    .bind(record.githubLogin, record.levelId)
+    .all();
+  if (isSimilarToAny(record.payloadText, (rows.results || []).map((r) => r.payload_text))) return 'duplicate';
+  await db
+    .prepare('INSERT INTO breach_corpus (github_login, level_id, payload_text, chars, ts) VALUES (?, ?, ?, ?, ?)')
+    .bind(record.githubLogin, record.levelId, record.payloadText, record.chars, record.ts)
+    .run();
+  return 'written';
+}
+
+/** 守方布防语料登记（对称）。 */
+export async function insertDefenseCorpus(db, record, isSimilarToAny) {
+  const rows = await db
+    .prepare('SELECT defense_prompt FROM defense_corpus WHERE github_login = ? AND level_id = ?')
+    .bind(record.githubLogin, record.levelId)
+    .all();
+  if (isSimilarToAny(record.defensePrompt, (rows.results || []).map((r) => r.defense_prompt))) return 'duplicate';
+  await db
+    .prepare('INSERT INTO defense_corpus (github_login, level_id, defense_prompt, ts) VALUES (?, ?, ?, ?)')
+    .bind(record.githubLogin, record.levelId, record.defensePrompt, record.ts)
+    .run();
+  return 'written';
+}
+
+/** 攻方份数榜前十：按有效破阵语料份数降序。 */
+export async function listAttackRanking(db) {
+  const out = await db
+    .prepare(
+      'SELECT github_login AS login, breach_count AS count, score FROM player_stats ' +
+        'WHERE breach_count > 0 ORDER BY breach_count DESC, score DESC, ts ASC LIMIT 10'
+    )
+    .all();
+  return out.results || [];
+}
+
+/** 守方份数榜前十。 */
+export async function listDefenseRanking(db) {
+  const out = await db
+    .prepare(
+      'SELECT github_login AS login, defense_count AS count, score FROM player_stats ' +
+        'WHERE defense_count > 0 ORDER BY defense_count DESC, score DESC, ts ASC LIMIT 10'
+    )
+    .all();
+  return out.results || [];
+}
+
+/** 留言板全量（position 升序）。 */
+export async function listBoard(db) {
+  const out = await db
+    .prepare('SELECT id, github_login AS login, display_name AS displayName, message, position, ts FROM message_board ORDER BY position ASC')
+    .all();
+  return out.results || [];
+}
+
+/**
+ * 留言（一人一条 upsert）：新留言排到队尾（position = MAX+1，提交时间序）；
+ * 已有留言者仅更新内容与时间，position 保留——换位成果不因重写留言丢失。
+ * @returns {Promise<'written'|'updated'>}
+ */
+export async function upsertBoardMessage(db, record) {
+  const existing = await db
+    .prepare('SELECT id FROM message_board WHERE github_login = ?')
+    .bind(record.githubLogin)
+    .first();
+  if (existing) {
+    await db
+      .prepare('UPDATE message_board SET display_name = ?, message = ?, ts = ? WHERE github_login = ?')
+      .bind(record.displayName, record.message, record.ts, record.githubLogin)
+      .run();
+    return 'updated';
+  }
+  const maxRow = await db.prepare('SELECT COALESCE(MAX(position), 0) AS maxPos FROM message_board').first();
+  await db
+    .prepare('INSERT INTO message_board (github_login, display_name, message, position, ts) VALUES (?, ?, ?, ?, ?)')
+    .bind(record.githubLogin, record.displayName, record.message, (maxRow?.maxPos ?? 0) + 1, record.ts)
+    .run();
+  return 'written';
+}
+
+/**
+ * 换位：我的留言与目标留言互换 position，扣 |Δ| 积分（等级不变）。
+ * 积分不足 / 目标不存在 / 与自己换 → 拒绝。
+ */
+export async function swapBoardPosition(db, login, targetId) {
+  const mine = await db.prepare('SELECT id, position FROM message_board WHERE github_login = ?').bind(login).first();
+  if (!mine) return { error: '你还没有留言，无法换位。' };
+  const target = await db
+    .prepare('SELECT id, position, github_login FROM message_board WHERE id = ?')
+    .bind(targetId)
+    .first();
+  if (!target) return { error: '目标留言不存在。' };
+  if (target.github_login === login) return { error: '不能与自己的留言换位。' };
+  const delta = Math.abs(mine.position - target.position);
+  if (delta === 0) return { error: '已在目标位置。' };
+  const stats = await getPlayerStats(db, login);
+  if (!stats || stats.score < delta) {
+    return { error: `积分不足：换 ${delta} 位需 ${delta} 分，你只有 ${stats ? stats.score : 0} 分。` };
+  }
+  await db.batch([
+    db.prepare('UPDATE message_board SET position = ? WHERE id = ?').bind(target.position, mine.id),
+    db.prepare('UPDATE message_board SET position = ? WHERE id = ?').bind(mine.position, target.id),
+    db.prepare('UPDATE player_stats SET score = score - ? WHERE github_login = ?').bind(delta, login),
+  ]);
+  return { swapped: true, delta };
 }
