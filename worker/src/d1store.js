@@ -1,14 +1,14 @@
 'use strict';
 /**
- * arena-worker —— D1 存储层：src/db.js（node:sqlite）的异步移植 + BYOK 身份扩展。
+ * arena-worker —— D1 存储层：src/db.js（node:sqlite）的异步移植 + v0.6.0 份数榜扩展。
  *
- * 身份模型：actor 是唯一键（github_login 或 'guest:'+display_id），每玩家每关一行；
- * display_id 是自填的榜上展示名号；github_login / github_avatar 仅在「挂身份」时写入，
- * NULL 即「不挂」——榜单公开展示永不出现未同意的 GitHub 信息。
- *
- * 覆盖语义与 Node 版一致：
- *   名将榜：同 actor 更短招式覆盖（ON CONFLICT ... WHERE excluded.chars < 现值）；
- *   段位榜：拦截率更高者覆盖，同率取样本更大者。
+ * 当前六表模型（v0.7.0 起旧榜单三表 breach_records/breach_payloads/defense_records 已退役）：
+ *   audit_log         审计元数据（90 天滚动清理，写入时顺手修剪）；
+ *   breach_unclaimed  未上榜破阵匿名回流（同关同 payload 幂等，语料飞轮专属）；
+ *   player_stats      攻/防份数与积分（github_login 主键；总计=攻+守，积分可消费）；
+ *   breach_corpus     攻方语料登记（同登录同关相似度 ≥0.8 视为同一份，不重复计分）；
+ *   defense_corpus    守方布防语料登记（对称）；
+ *   message_board     留言板（一人一条，position 序列号，积分换位）。
  * 全部查询走参数绑定，无字符串拼 SQL。玩家 LLM Key 永不入库。
  */
 
@@ -61,75 +61,64 @@ export async function insertAudit(db, record) {
 }
 
 /**
- * 名将榜落库（破阵凭证兑换时调用）。payload 明文单独落 breach_payloads（隔离层）：
- * 榜单表只存展示字段；仅当纪录实际写入/覆盖（更短）时才写 payload。
- * @returns {Promise<'written'|'kept'>} kept = 榜上已有更短招式，未覆盖
+ * 攻方语料登记（份数榜计分）：同登录同关内与既有语料比对，
+ * 相似（isSimilarToAny 由调用方注入，阈值 0.8）视为同一份——不重复计分。
+ * @returns {Promise<'written'|'duplicate'>}
  */
-export async function upsertBreachRecord(db, record) {
-  const row = await db
-    .prepare(
-      'INSERT INTO breach_records (level_id, actor, display_id, chars, tokens, message, github_login, github_avatar, ts) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
-        'ON CONFLICT(level_id, actor) DO UPDATE SET ' +
-        'chars = excluded.chars, tokens = excluded.tokens, ' +
-        'message = excluded.message, github_login = excluded.github_login, github_avatar = excluded.github_avatar, ts = excluded.ts ' +
-        'WHERE excluded.chars < breach_records.chars ' +
-        'RETURNING id'
-    )
-    .bind(
-      record.levelId,
-      record.actor,
-      record.displayId,
-      record.chars,
-      n(record.tokens),
-      n(record.message),
-      n(record.githubLogin),
-      n(record.githubAvatar),
-      record.ts
-    )
-    .first();
-  if (!row) return 'kept';
+export async function insertBreachCorpus(db, record, isSimilarToAny) {
+  const rows = await db
+    .prepare('SELECT payload_text FROM breach_corpus WHERE github_login = ? AND level_id = ?')
+    .bind(record.githubLogin, record.levelId)
+    .all();
+  if (isSimilarToAny(record.payloadText, (rows.results || []).map((r) => r.payloadText))) return 'duplicate';
   await db
-    .prepare(
-      'INSERT INTO breach_payloads (breach_id, payload_text, ts) VALUES (?, ?, ?) ' +
-        'ON CONFLICT(breach_id) DO UPDATE SET payload_text = excluded.payload_text, ts = excluded.ts'
-    )
-    .bind(row.id, record.payloadText, record.ts)
+    .prepare('INSERT INTO breach_corpus (github_login, level_id, payload_text, chars, ts) VALUES (?, ?, ?, ?, ?)')
+    .bind(record.githubLogin, record.levelId, record.payloadText, record.chars, record.ts)
     .run();
   return 'written';
 }
 
 /**
- * 段位榜落库（守方考段凭证兑换时调用）。
- * @returns {Promise<'written'|'kept'>}
+ * 守方布防语料登记（对称）：同登录同关内布防提示词相似 ≥0.8 视为同一份。
+ * @returns {Promise<'written'|'duplicate'>}
  */
-export async function upsertDefenseRecord(db, record) {
-  const res = await db
-    .prepare(
-      'INSERT INTO defense_records (level_id, actor, display_id, block_rate, leak_rate, fp_rate, evaluated, message, github_login, github_avatar, ts) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
-        'ON CONFLICT(level_id, actor) DO UPDATE SET ' +
-        'block_rate = excluded.block_rate, leak_rate = excluded.leak_rate, fp_rate = excluded.fp_rate, ' +
-        'evaluated = excluded.evaluated, message = excluded.message, ' +
-        'github_login = excluded.github_login, github_avatar = excluded.github_avatar, ts = excluded.ts ' +
-        'WHERE excluded.block_rate > defense_records.block_rate ' +
-        'OR (excluded.block_rate = defense_records.block_rate AND excluded.evaluated > defense_records.evaluated)'
-    )
-    .bind(
-      record.levelId,
-      record.actor,
-      record.displayId,
-      record.blockRate,
-      record.leakRate,
-      n(record.fpRate),
-      record.evaluated,
-      n(record.message),
-      n(record.githubLogin),
-      n(record.githubAvatar),
-      record.ts
-    )
+export async function insertDefenseCorpus(db, record, isSimilarToAny) {
+  const rows = await db
+    .prepare('SELECT defense_prompt FROM defense_corpus WHERE github_login = ? AND level_id = ?')
+    .bind(record.githubLogin, record.levelId)
+    .all();
+  if (isSimilarToAny(record.defensePrompt, (rows.results || []).map((r) => r.defensePrompt))) return 'duplicate';
+  await db
+    .prepare('INSERT INTO defense_corpus (github_login, level_id, defense_prompt, ts) VALUES (?, ?, ?, ?)')
+    .bind(record.githubLogin, record.levelId, record.defensePrompt, record.ts)
     .run();
-  return res.meta && res.meta.changes > 0 ? 'written' : 'kept';
+  return 'written';
+}
+
+/** 玩家统计读取（无行则 null）：攻/防份数与可消费积分。 */
+export async function getPlayerStats(db, login) {
+  const row = await db
+    .prepare('SELECT breach_count AS breachCount, defense_count AS defenseCount, score FROM player_stats WHERE github_login = ?')
+    .bind(login)
+    .first();
+  return row || null;
+}
+
+/**
+ * 计分累加（行不存在则建）：攻/守份数与积分按增量累加；
+ * 相似语料判重通过后才调用，保证「同一份」不重复升级。
+ */
+export async function addPlayerStats(db, login, delta) {
+  await db
+    .prepare(
+      'INSERT INTO player_stats (github_login, breach_count, defense_count, score, ts) VALUES (?, ?, ?, ?, ?) ' +
+        'ON CONFLICT (github_login) DO UPDATE SET ' +
+        'breach_count = breach_count + excluded.breach_count, ' +
+        'defense_count = defense_count + excluded.defense_count, ' +
+        'score = score + excluded.score, ts = excluded.ts'
+    )
+    .bind(login, delta.breachDelta || 0, delta.defenseDelta || 0, delta.scoreDelta || 0, new Date().toISOString())
+    .run();
 }
 
 /**

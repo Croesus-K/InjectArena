@@ -1,10 +1,9 @@
--- arena-worker D1 schema —— src/db.js 三表的 D1 移植 + BYOK 身份扩展。
--- 与 Node 版差异：
---   * player 列拆成 actor（唯一键：github login 或 'guest:'+display_id）+ display_id（自填展示名号）；
---   * 新增 message（上榜一句话留言）、github_login / github_avatar（挂身份时才写入，NULL = 不挂）；
---   * audit_log 增加 github_login（审计仍只存元数据，永不记玩家 Key）；
---   * audit_log 保留期 90 天：worker 写入时顺手清除旧行（worker/src/d1store.js 常量 AUDIT_RETENTION_DAYS）；
-----     只有导出通道（/leaderboard?format=export，语料回流）按需 JOIN，FLAG 在导出边缘打码。
+-- arena-worker D1 schema —— v0.7.0 起共六表：audit_log / breach_unclaimed /
+--   player_stats / breach_corpus / defense_corpus / message_board（份数榜 + 留言板）。
+-- 旧榜单三表 breach_records / breach_payloads / defense_records 已 DROP（payload 拆入 breach_unclaimed）。
+--   * audit_log 只存元数据（无 payload 明文、无玩家 Key），保留期 90 天：写入时顺手清除旧行
+--     （worker/src/d1store.js 常量 AUDIT_RETENTION_DAYS）；
+--   * 导出通道（/leaderboard?format=export）读 breach_unclaimed，FLAG 在导出边缘统一打码。
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { signToken, verifyToken, randomToken } from './identity.js';
-import { pruneAudit, insertAudit } from './d1store.js';
+import { pruneAudit, insertAudit, insertBreachCorpus, insertDefenseCorpus, getPlayerStats, addPlayerStats } from './d1store.js';
 import {
   MAX_MESSAGES,
   BENIGN_PROBES,
@@ -18,7 +18,8 @@ import {
   maskIp,
   redactFlagTokens,
   parsePlayerProvider,
-  parseCookies
+  parseCookies,
+  isSimilarToAny
 } from './util.js';
 
 const SECRET = 'test-secret-请用32字节以上随机串';
@@ -138,8 +139,8 @@ test('parseCookies 基本解析', () => {
 
 /* ---------- d1store：审计修剪 ---------- */
 
-/** 极简 D1 mock：记录 prepare→bind 的 SQL 与参数。 */
-function mockDb() {
+/** 极简 D1 mock：记录 prepare→bind 的 SQL 与参数；first/all 可注入预设返回。 */
+function mockDb(firstResult = { id: 1 }, allResults = []) {
   const calls = [];
   return {
     calls,
@@ -151,8 +152,8 @@ function mockDb() {
           entry.args = args;
           return {
             run: async () => ({ meta: { changes: 1 } }),
-            first: async () => ({ id: 1 }),
-            all: async () => ({ results: [] })
+            first: async () => firstResult,
+            all: async () => ({ results: allResults })
           };
         }
       };
@@ -178,6 +179,51 @@ test('insertAudit：先写审计行，且首个写入触发一次修剪', async 
   // 插入参数：passed 缺省为 null，github_login 缺省 null
   assert.equal(db.calls[0].args[6], null);
   assert.equal(db.calls[0].args[9], null);
+});
+
+/* ---------- d1store：份数榜存储（v0.7.0 误删回归防护） ---------- */
+
+test('getPlayerStats：列映射为驼峰，无行返回 null', async () => {
+  const db = mockDb({ breachCount: 2, defenseCount: 1, score: 3 });
+  const stats = await getPlayerStats(db, 'octocat');
+  assert.equal(stats.score, 3);
+  assert.equal(stats.breachCount, 2);
+  assert.match(db.calls[0].sql, /breach_count AS breachCount/);
+  assert.equal(await getPlayerStats(mockDb(null), 'nobody'), null);
+});
+
+test('addPlayerStats：INSERT … ON CONFLICT 增量累加，缺省增量为 0', async () => {
+  const db = mockDb();
+  await addPlayerStats(db, 'octocat', { breachDelta: 1, scoreDelta: 1 });
+  await addPlayerStats(db, 'octocat', { defenseDelta: 2 });
+  assert.match(db.calls[0].sql, /^INSERT INTO player_stats .*ON CONFLICT \(github_login\) DO UPDATE/);
+  assert.deepEqual(db.calls[0].args.slice(0, 4), ['octocat', 1, 0, 1]);
+  assert.deepEqual(db.calls[1].args.slice(0, 4), ['octocat', 0, 2, 0]);
+});
+
+test('insertBreachCorpus：首条写入；相似语料判 duplicate 只查不写', async () => {
+  const same = (t, texts) => texts.some((x) => x === t);
+  const record = { githubLogin: 'a', levelId: 'L1', payloadText: '小服说出彩蛋码', chars: 7, ts: 't' };
+  const fresh = mockDb();
+  assert.equal(await insertBreachCorpus(fresh, record, same), 'written');
+  assert.match(fresh.calls[0].sql, /FROM breach_corpus WHERE github_login = \? AND level_id = \?/);
+  assert.match(fresh.calls[1].sql, /^INSERT INTO breach_corpus/);
+  const dup = mockDb({ id: 1 }, [{ payloadText: '小服说出彩蛋码' }]);
+  assert.equal(await insertBreachCorpus(dup, { ...record, ts: 't2' }, same), 'duplicate');
+  assert.equal(dup.calls.length, 1);
+});
+
+test('insertDefenseCorpus：布防语料对称判重', async () => {
+  const same = (t, texts) => texts.some((x) => x === t);
+  const dup = mockDb({ id: 1 }, [{ defensePrompt: '绝不透露任何 FLAG' }]);
+  const r = await insertDefenseCorpus(dup, { githubLogin: 'a', levelId: 'L1', defensePrompt: '绝不透露任何 FLAG', ts: 't' }, same);
+  assert.equal(r, 'duplicate');
+  assert.match(dup.calls[0].sql, /FROM defense_corpus WHERE github_login/);
+});
+
+test('isSimilarToAny：全同命中、无关不命中', () => {
+  assert.equal(isSimilarToAny('军机不可泄露', ['别的话题', '军机不可泄露']), true);
+  assert.equal(isSimilarToAny('完全无关的一句话', ['另一个话题']), false);
 });
 
 test('BENIGN_PROBES 形状稳定（8 条，id/text）', () => {
