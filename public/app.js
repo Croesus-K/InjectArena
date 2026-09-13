@@ -22,6 +22,7 @@
     config: null,       // {baseUrl, model, key} | null
     session: null,      // {login, avatar} | null
     boardData: null,    // 份数榜缓存（attackRanking/defenseRanking）
+    boardView: 'attack',// 观星台当前页：attack | defense | messages
     messages: null      // 留言板缓存
   };
 
@@ -42,11 +43,13 @@
     tabAttack: document.getElementById('tab-attack'),
     tabDefense: document.getElementById('tab-defense'),
     tabBoard: document.getElementById('tab-board'),
-    tabMessages: document.getElementById('tab-messages'),
     attackPanel: document.getElementById('attack-panel'),
     defensePanel: document.getElementById('defense-panel'),
     boardPanel: document.getElementById('board-panel'),
-    messagesPanel: document.getElementById('messages-panel'),
+    boardView: document.getElementById('board-view'),
+    viewAttack: document.getElementById('view-attack'),
+    viewDefense: document.getElementById('view-defense'),
+    viewMessages: document.getElementById('view-messages'),
     boardAttack: document.getElementById('board-attack'),
     boardDefense: document.getElementById('board-defense'),
     boardEmpty: document.getElementById('board-empty'),
@@ -394,19 +397,31 @@
     el.tabAttack.className = 'tab' + (mode === 'attack' ? ' active' : '');
     el.tabDefense.className = 'tab' + (mode === 'defense' ? ' active' : '');
     el.tabBoard.className = 'tab' + (mode === 'board' ? ' active' : '');
-    el.tabMessages.className = 'tab' + (mode === 'messages' ? ' active' : '');
     el.attackPanel.hidden = mode !== 'attack';
     el.defensePanel.hidden = mode !== 'defense';
     el.boardPanel.hidden = mode !== 'board';
-    el.messagesPanel.hidden = mode !== 'messages';
-    if (mode === 'board') loadBoard();
-    if (mode === 'messages') loadMessages();
+    if (mode === 'board') showBoardView(state.boardView);
   }
 
   el.tabAttack.addEventListener('click', function () { switchMode('attack'); });
   el.tabDefense.addEventListener('click', function () { switchMode('defense'); });
   el.tabBoard.addEventListener('click', function () { switchMode('board'); });
-  el.tabMessages.addEventListener('click', function () { switchMode('messages'); });
+
+  /** 观星台三页切换：攻榜 / 守榜 / 留言板（数据各自惰性加载）。 */
+  function showBoardView(view) {
+    state.boardView = view;
+    el.boardView.value = view;
+    el.viewAttack.hidden = view !== 'attack';
+    el.viewDefense.hidden = view !== 'defense';
+    el.viewMessages.hidden = view !== 'messages';
+    el.boardEmpty.textContent = '';
+    if (view === 'attack' || view === 'defense') {
+      if (!state.boardData) loadBoard(); else renderBoard();
+    } else {
+      loadMessages();
+    }
+  }
+  el.boardView.addEventListener('change', function () { showBoardView(el.boardView.value); });
 
   /* ---------- 榜 · 观星台（份数榜前十） ---------- */
 
@@ -460,23 +475,17 @@
     el.boardDefense.innerHTML = '';
     el.boardEmpty.textContent = '';
     if (!state.boardData) return;
-    var attack = state.boardData.attackRanking || [];
-    var defense = state.boardData.defenseRanking || [];
+    var isAttack = state.boardView === 'attack';
+    var rows = isAttack ? (state.boardData.attackRanking || []) : (state.boardData.defenseRanking || []);
+    var host = isAttack ? el.boardAttack : el.boardDefense;
 
-    if (attack.length) {
-      el.boardAttack.appendChild(boardTable(
+    if (rows.length) {
+      host.appendChild(boardTable(
         ['名号', '份数', '积分'],
-        attack.map(function (r, i) { return [rankName(i + 1, r.login), r.count, r.score]; })
+        rows.map(function (r, i) { return [rankName(i + 1, r.login), r.count, r.score]; })
       ));
-    }
-    if (defense.length) {
-      el.boardDefense.appendChild(boardTable(
-        ['名号', '份数', '积分'],
-        defense.map(function (r, i) { return [rankName(i + 1, r.login), r.count, r.score]; })
-      ));
-    }
-    if (!attack.length && !defense.length) {
-      el.boardEmpty.textContent = '虚位以待——破阵、考段即自动计入（需 GitHub 登录）。';
+    } else {
+      el.boardEmpty.textContent = '虚位以待——' + (isAttack ? '破阵' : '考段') + '即自动计入（需 GitHub 登录）。';
     }
   }
 
@@ -636,7 +645,7 @@
       }
       if (el.recordDialog.close) el.recordDialog.close();
       pushNotice(data.outcome === 'written'
-        ? '已留言！切到「言 · 留言板」可见你的名号。'
+        ? '已留言！到「榜 · 观星 → 言 · 留言板」可见你的名号。'
         : '留言已更新（一人一条，位置保留）。');
     } catch (e) {
       el.recordError.textContent = '网络错误：' + e.message;
