@@ -713,7 +713,6 @@ async function route(request, env, ctx) {
   }
   if (request.method === 'GET' && sub === '/levels') return await getLevels(env);
   if (request.method === 'GET' && sub === '/leaderboard') return await getLeaderboard(request, env);
-  if (request.method === 'POST' && sub === '/records') return await postRecords(request, env);
 
   if (request.method === 'GET' && sub === '/board') return await getBoard(request, env);
   if (request.method === 'POST' && sub === '/board') return await postBoard(request, env);
