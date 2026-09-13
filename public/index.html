@@ -6,7 +6,7 @@
   <title>攻心 · InjectArena — 乌托邦站内靶场（BYOK）</title>
   <!-- 静态资源带版本参数：CF Pages 对非 HTML 资源默认 max-age=14400（浏览器强缓存 4h），
        改了 app.js/style.css 必须 bump 这里的 v=，否则老访客 4 小时内看不到新逻辑 -->
-  <link rel="stylesheet" href="./style.css?v=20260913-13">
+  <link rel="stylesheet" href="./style.css?v=20260913-14">
 </head>
 <body>
   <header>
@@ -139,10 +139,22 @@
     </div>
   </dialog>
 
+  <!-- 退出确认：误触可取消；「清 Key」是独立勾选项，默认保留（也可在 ⚙ 配置里随时一键清除） -->
+  <dialog id="logout-dialog">
+    <h2>退出 GitHub 登录</h2>
+    <p class="dialog-hint">仅退出账号；本机保存的 API Key 默认保留。</p>
+    <label class="form-row"><span>同时清除本机 API Key</span><input id="logout-clear-key" type="checkbox"></label>
+    <p class="dialog-hint">Key 也可随时在「⚙ 配置」里一键清除。</p>
+    <div class="dialog-actions">
+      <button id="logout-cancel" type="button" class="ghost-btn">取消</button>
+      <button id="logout-submit" type="button" class="primary-btn">退出登录</button>
+    </div>
+  </dialog>
+
   <footer>
     判定为确定性代码，绝不用 LLM 当裁判 · BYOK：Key 只存你本机 · 经站内 Worker 中转 · 每 IP 限流 · 审计日志
   </footer>
 
-  <script src="./app.js?v=20260913-13"></script>
+  <script src="./app.js?v=20260913-14"></script>
 </body>
 </html>
