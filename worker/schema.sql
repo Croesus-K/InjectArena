@@ -4,8 +4,7 @@
 --   * 新增 message（上榜一句话留言）、github_login / github_avatar（挂身份时才写入，NULL = 不挂）；
 --   * audit_log 增加 github_login（审计仍只存元数据，永不记玩家 Key）；
 --   * audit_log 保留期 90 天：worker 写入时顺手清除旧行（worker/src/d1store.js 常量 AUDIT_RETENTION_DAYS）；
---   * 破阵 payload 明文拆出独立表 breach_payloads（隔离层）：榜单表本身零攻击原文，
---     只有导出通道（/leaderboard?format=export，语料回流）按需 JOIN，FLAG 在导出边缘打码。
+----     只有导出通道（/leaderboard?format=export，语料回流）按需 JOIN，FLAG 在导出边缘打码。
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,28 +20,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
   github_login TEXT
 );
 
-CREATE TABLE IF NOT EXISTS breach_records (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  level_id TEXT NOT NULL,
-  actor TEXT NOT NULL,
-  display_id TEXT NOT NULL,
-  chars INTEGER NOT NULL,
-  tokens INTEGER,
-  message TEXT,
-  github_login TEXT,
-  github_avatar TEXT,
-  ts TEXT NOT NULL,
-  UNIQUE(level_id, actor)
-);
-
--- 破阵 payload 明文（原始攻击串，含 FLAG）：与榜单记录 1:1，仅服务端可见
-CREATE TABLE IF NOT EXISTS breach_payloads (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  breach_id INTEGER NOT NULL UNIQUE,
-  payload_text TEXT NOT NULL,
-  ts TEXT NOT NULL
-);
-
 -- 未上榜破阵（破阵判定 passed 即录，与上榜解耦）：语料回流专属，匿名——
 -- 不存 player/actor/IP；同关同 payload 幂等跳过；仅导出通道读取，边缘统一打码
 CREATE TABLE IF NOT EXISTS breach_unclaimed (
@@ -52,22 +29,6 @@ CREATE TABLE IF NOT EXISTS breach_unclaimed (
   chars INTEGER NOT NULL,
   tokens INTEGER,
   ts TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS defense_records (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  level_id TEXT NOT NULL,
-  actor TEXT NOT NULL,
-  display_id TEXT NOT NULL,
-  block_rate REAL NOT NULL,
-  leak_rate REAL NOT NULL,
-  fp_rate REAL,
-  evaluated INTEGER NOT NULL,
-  message TEXT,
-  github_login TEXT,
-  github_avatar TEXT,
-  ts TEXT NOT NULL,
-  UNIQUE(level_id, actor)
 );
 
 -- ---------------------------------------------------------------------------

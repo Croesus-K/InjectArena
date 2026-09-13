@@ -106,43 +106,6 @@ export function parsePlayerProvider(headers, allowedHosts) {
   return { ok: true, provider: { baseUrl, apiKey, model } };
 }
 
-const DISPLAY_ID_MAX = 24;
-const MESSAGE_MAX = 60;
-
-/**
- * 校验上榜提交（/records 的 body）。
- * @param {object} body {credential, kind, displayId, message, showGithub}
- * @param {object|null} session 会话（null = 游客）
- * @returns {{ok:true, fields:object} | {ok:false, error:string}}
- */
-export function sanitizeRecordBody(body, session) {
-  if (!body || typeof body !== 'object') return { ok: false, error: '请求体不合法。' };
-  const kind = body.kind;
-  if (kind !== 'breach' && kind !== 'defense') return { ok: false, error: '未知的纪录类型。' };
-  if (typeof body.credential !== 'string' || body.credential.length === 0 || body.credential.length > 4000) {
-    return { ok: false, error: '缺少有效的破阵凭证。' };
-  }
-  const displayId = typeof body.displayId === 'string' ? body.displayId.trim() : '';
-  if (displayId.length < 1 || displayId.length > DISPLAY_ID_MAX || FORBIDDEN_ID_CHARS.test(displayId)) {
-    return { ok: false, error: '榜上名号需 1-' + DISPLAY_ID_MAX + ' 字，且不含控制字符或尖括号。' };
-  }
-  const message = typeof body.message === 'string' ? body.message.trim() : '';
-  if (message.length > MESSAGE_MAX) return { ok: false, error: '留言最长 ' + MESSAGE_MAX + ' 字。' };
-  const showGithub = body.showGithub === true && Boolean(session && session.login);
-  return {
-    ok: true,
-    fields: {
-      kind,
-      credential: body.credential,
-      displayId,
-      message: message || null,
-      showGithub,
-      githubLogin: showGithub ? session.login : null,
-      githubAvatar: showGithub ? session.avatar : null
-    }
-  };
-}
-
 /** 解析 Cookie 头为对象（只在本 Worker 的少量键上使用）。 */
 export function parseCookies(header) {
   const out = {};

@@ -31,7 +31,6 @@ import {
   selectCorpus,
   redactFlagTokens,
   parsePlayerProvider,
-  sanitizeRecordBody,
   parseCookies
 } from './util.js';
 import { signToken, verifyToken } from './identity.js';
@@ -165,13 +164,8 @@ function evalProvider(request, env) {
 // ---------------------------------------------------------------------------
 
 async function getLevels(env) {
-  const rows = await store.listBreachRecords(env.DB, 500);
-  const best = {};
-  for (const r of rows) {
-    if (!best[r.levelId]) best[r.levelId] = { chars: r.chars, player: r.player };
-  }
   return jsonResponse({
-    levels: LEVELS.map((l) => ({ ...publicLevel(l), bestBreach: best[l.id] || null }))
+    levels: LEVELS.map((l) => ({ ...publicLevel(l) }))
   });
 }
 
@@ -186,32 +180,25 @@ async function getLeaderboard(request, env) {
     }
     const limitRaw = Number(url.searchParams.get('limit'));
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), EXPORT_LIMIT_MAX) : EXPORT_LIMIT_MAX;
-    const breaches = await store.listBreachRecordsFull(env.DB, limit);
     const unclaimed = await store.listUnclaimedBreaches(env.DB, limit);
     return jsonResponse({
       format: 'injectarena-export@2',
       exportedAt: new Date().toISOString(),
       redacted: true,
-      breaches: breaches.map((r) => ({
-        ...r,
-        attackSurface: (LEVEL_BY_ID.get(r.levelId) || {}).attackSurface || null,
-        payloadText: redactFlagTokens(r.payloadText)
-      })),
-      // 未上榜破阵（破阵即录）：匿名、无 player/message/github——语料回流的另一半来源
+      // 旧 breach_records 通道已弃用：breaches 恒空（字段保留，飞轮 @1/@2 兼容）
+      breaches: [],
+      // 全部破阵语料（含未上榜）走 unclaimedBreaches：匿名、边缘统一打码
       unclaimedBreaches: unclaimed.map((r) => ({
         ...r,
         attackSurface: (LEVEL_BY_ID.get(r.levelId) || {}).attackSurface || null,
         payloadText: redactFlagTokens(r.payloadText)
       })),
-      defense: await store.listDefenseRecords(env.DB, limit)
+      defense: []
     });
   }
   return jsonResponse({
-    // 攻防榜（v0.6.0）：按总计份数排序前五十，仅 GitHub 登录者——破阵/考段完成即自动计入
-    ranking: await store.listRanking(env.DB, 50),
-    // 旧口径（最短招式 / 最高拦截率）保留输出，兼容旧前端与历史展示
-    attack: await store.listBreachRecords(env.DB, 100),
-    defense: await store.listDefenseRecords(env.DB, 100)
+    // 攻防榜：按总计份数排序前五十，仅 GitHub 登录者——破阵/考段完成即自动计入
+    ranking: await store.listRanking(env.DB, 50)
   });
 }
 
@@ -605,60 +592,6 @@ async function postDefense(request, env, ctx, levelId, stream) {
   return new Response(readable, {
     headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-cache', ...SECURITY_HEADERS }
   });
-}
-
-// ---------------------------------------------------------------------------
-// 上榜兑换（凭证 → D1）
-// ---------------------------------------------------------------------------
-
-async function postRecords(request, env) {
-  if (!env.ARENA_SESSION_SECRET) {
-    return jsonResponse({ error: '站内凭证未启用：站长尚未配置 ARENA_SESSION_SECRET。' }, 503);
-  }
-  const ip = clientIp(request);
-  const session = await readSession(request, env);
-  const rl = limiters(env).records.check('records:' + ip);
-  if (!rl.allowed) {
-    return jsonResponse({ error: '提交太密，' + rl.retryAfterSeconds + ' 秒后再来。' }, 429, { 'retry-after': String(rl.retryAfterSeconds) });
-  }
-
-  const sanitized = sanitizeRecordBody(await safeJson(request), session);
-  if (!sanitized.ok) return jsonResponse({ error: sanitized.error }, 400);
-  const f = sanitized.fields;
-
-  const cred = await verifyToken(env.ARENA_SESSION_SECRET, f.credential);
-  if (!cred || cred.kind !== f.kind) {
-    return jsonResponse({ error: '破阵凭证无效或已过期——请重新破阵后再上榜。' }, 400);
-  }
-  const level = LEVEL_BY_ID.get(cred.levelId);
-  if (!level) return jsonResponse({ error: '凭证指向未知关卡。' }, 400);
-
-  const ts = new Date().toISOString();
-  // 挂身份的 actor = github login（一个 GitHub 身份一条纪录）；
-  // 游客 actor = 'guest:' + 自填名号。同 actor 更短/更优者覆盖。
-  const actor = f.showGithub ? 'gh:' + f.githubLogin : 'guest:' + f.displayId;
-
-  let outcome;
-  if (f.kind === 'breach') {
-    outcome = await store.upsertBreachRecord(env.DB, {
-      levelId: level.id, actor, displayId: f.displayId,
-      chars: cred.chars, tokens: cred.tokens, payloadText: String(cred.payloadText || ''),
-      message: f.message, githubLogin: f.githubLogin, githubAvatar: f.githubAvatar, ts
-    });
-  } else {
-    outcome = await store.upsertDefenseRecord(env.DB, {
-      levelId: level.id, actor, displayId: f.displayId,
-      blockRate: cred.blockRate, leakRate: cred.leakRate, fpRate: cred.fpRate, evaluated: cred.evaluated,
-      message: f.message, githubLogin: f.githubLogin, githubAvatar: f.githubAvatar, ts
-    });
-  }
-
-  await store.insertAudit(env.DB, {
-    ts, ip, route: 'records', levelId: level.id,
-    outcome: f.kind + ':' + outcome, githubLogin: f.githubLogin
-  });
-
-  return jsonResponse({ ok: true, outcome, kind: f.kind });
 }
 
 // ---------------------------------------------------------------------------
