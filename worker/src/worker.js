@@ -73,8 +73,15 @@ function limiters(env) {
   return limitersCache;
 }
 
-function clientIp(request) {
-  return request.headers.get('CF-Connecting-IP') || 'unknown';
+// 审计与限流键统一用「IP+Worker secret 盐」的 SHA-256 前 32 位——
+// D1 dump 不再能反推明文 IP；同 IP 跨请求命中同一桶，限流行为不变。
+// ARENA_SESSION_SECRET 已是为 OAuth 凭证签发的现成盐，复用一处。
+async function clientIpHash(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const salt = env.ARENA_SESSION_SECRET || '';
+  const data = new TextEncoder().encode(ip + '\x00' + salt);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
 }
 
 function jsonResponse(obj, status, extraHeaders) {
@@ -172,7 +179,7 @@ async function getLevels(env) {
 async function getLeaderboard(request, env) {
   const url = new URL(request.url);
   if (url.searchParams.get('format') === 'export') {
-    const ip = clientIp(request);
+    const ip = await clientIpHash(request, env);
     const rl = limiters(env).export.check('export:' + ip);
     if (!rl.allowed) {
       await store.insertAudit(env.DB, { ts: new Date().toISOString(), ip, route: 'leaderboard-export', outcome: 'rate-limited' });
@@ -271,7 +278,7 @@ async function postChat(request, env, ctx, levelId) {
   const level = LEVEL_BY_ID.get(levelId);
   if (!level) return jsonResponse({ error: '未知关卡' }, 404);
 
-  const ip = clientIp(request);
+  const ip = await clientIpHash(request, env);
   const session = await readSession(request, env);
   const rl = limiters(env).chat.check('chat:' + ip);
   if (!rl.allowed) {
@@ -515,7 +522,7 @@ async function postDefense(request, env, ctx, levelId, stream) {
   const level = LEVEL_BY_ID.get(levelId);
   if (!level) return jsonResponse({ error: '未知关卡' }, 404);
 
-  const ip = clientIp(request);
+  const ip = await clientIpHash(request, env);
   const session = await readSession(request, env);
   const rl = limiters(env).defense.check('defense:' + ip);
   if (!rl.allowed) {
@@ -671,7 +678,7 @@ async function oauthCallback(request, env) {
 
   const sessionToken = await signToken(env.ARENA_SESSION_SECRET, { kind: 'session', login, avatar }, SESSION_TTL_MS);
   await store.insertAudit(env.DB, {
-    ts: new Date().toISOString(), ip: clientIp(request), route: 'oauth',
+    ts: new Date().toISOString(), ip: await clientIpHash(request, env), route: 'oauth',
     outcome: 'login', githubLogin: login
   });
   return new Response(null, {
