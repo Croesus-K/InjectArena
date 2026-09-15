@@ -19,7 +19,8 @@ import {
   redactFlagTokens,
   parsePlayerProvider,
   parseCookies,
-  isSimilarToAny
+  isSimilarToAny,
+  clientIpHash
 } from './util.js';
 
 const SECRET = 'test-secret-请用32字节以上随机串';
@@ -232,4 +233,40 @@ test('BENIGN_PROBES 形状稳定（8 条，id/text）', () => {
     assert.match(p.id, /^bz-\d{3}$/);
     assert.ok(p.text.length > 0);
   }
+});
+
+/* ---------- clientIpHash ---------- */
+
+const makeReq = (ip) => ({ headers: { get: (k) => (k === 'CF-Connecting-IP' ? ip : null) } });
+const ENV = { ARENA_SESSION_SECRET: 'test-secret-请用32字节以上随机串' };
+
+test('clientIpHash：CF-Connecting-IP + 盐 都齐 → 32 位 hex', async () => {
+  const h = await clientIpHash(makeReq('203.0.113.7'), ENV);
+  assert.match(h, /^[0-9a-f]{32}$/);
+});
+
+test('clientIpHash：无 CF-Connecting-IP 头 → 落 "unknown" 也能算出', async () => {
+  const h1 = await clientIpHash(makeReq(null), ENV);
+  const h2 = await clientIpHash({ headers: { get: () => null } }, ENV);
+  assert.match(h1, /^[0-9a-f]{32}$/);
+  assert.equal(h1, h2);
+});
+
+test('clientIpHash：盐缺失 → 仍出 32 位 hex（不抛，部署方需自查 secret）', async () => {
+  const h = await clientIpHash(makeReq('203.0.113.7'), {});
+  assert.match(h, /^[0-9a-f]{32}$/);
+});
+
+test('clientIpHash：同输入稳定、同 IP 不同盐必然不同', async () => {
+  const a1 = await clientIpHash(makeReq('198.51.100.1'), ENV);
+  const a2 = await clientIpHash(makeReq('198.51.100.1'), ENV);
+  const b = await clientIpHash(makeReq('198.51.100.1'), { ARENA_SESSION_SECRET: '另一个盐' });
+  assert.equal(a1, a2);
+  assert.notEqual(a1, b);
+});
+
+test('clientIpHash：不同 IP 必出不同 hash（32 位截断后碰撞概率仍极低）', async () => {
+  const h1 = await clientIpHash(makeReq('198.51.100.1'), ENV);
+  const h2 = await clientIpHash(makeReq('198.51.100.2'), ENV);
+  assert.notEqual(h1, h2);
 });

@@ -31,7 +31,8 @@ import {
   selectCorpus,
   redactFlagTokens,
   parsePlayerProvider,
-  parseCookies
+  parseCookies,
+  clientIpHash
 } from './util.js';
 import { signToken, verifyToken } from './identity.js';
 
@@ -73,16 +74,9 @@ function limiters(env) {
   return limitersCache;
 }
 
-// 审计与限流键统一用「IP+Worker secret 盐」的 SHA-256 前 32 位——
-// D1 dump 不再能反推明文 IP；同 IP 跨请求命中同一桶，限流行为不变。
+// 审计与限流键统一用「IP+Worker secret 盐」的 SHA-256 前 32 位实现见 util.js 的
+// clientIpHash —— D1 dump 不再能反推明文 IP；同 IP 跨请求命中同一桶，限流行为不变。
 // ARENA_SESSION_SECRET 已是为 OAuth 凭证签发的现成盐，复用一处。
-async function clientIpHash(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const salt = env.ARENA_SESSION_SECRET || '';
-  const data = new TextEncoder().encode(ip + '\x00' + salt);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
-}
 
 function jsonResponse(obj, status, extraHeaders) {
   return new Response(JSON.stringify(obj), {
