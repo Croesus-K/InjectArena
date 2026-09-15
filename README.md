@@ -123,9 +123,9 @@ npx wrangler deploy
 │   ├── db.js            # 审计日志 + 两榜存储（node:sqlite，零额外依赖）
 │   └── server.js        # Fastify 服务与路由（攻击面隔离在这里落地）
 ├── levels/              # 关卡定义（schema + L1-L6 六关）
-├── corpus/              # 攻击 payload 语料库（直接注入 50 + 数据窃取 15 + 间接注入 20 + 工具滥用 15，schema 先行）
+├── corpus/              # 攻击 payload 语料库（直接注入 50 + 数据窃取 15 + 间接注入 20 + 工具滥用 15 + MCP 投毒 16，schema 先行）
 ├── worker/              # ★ Cloudflare Workers 后端（BYOK 站内部署：D1 榜单 + GitHub OAuth + 玩家 Key 中转）
-├── tests/               # node:test 单测（122 项）
+├── tests/               # node:test 单测（126 项）
 └── .github/workflows/ci.yml
 ```
 
@@ -151,7 +151,7 @@ npx wrangler deploy
 ## 测试与 CI
 
 ```bash
-npm test        # node:test，97 项：引擎纯逻辑 + provider(mock fetch) + server(fastify inject)
+npm test        # node:test，126 项：引擎纯逻辑 + provider(mock fetch) + server(fastify inject)
 ```
 
 GitHub Actions：push/PR 自动 `npm ci && npm test`（Node 24）。
