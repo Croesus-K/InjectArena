@@ -70,6 +70,20 @@ export function maskIp(ip) {
   return ip.slice(0, 4) + '*';
 }
 
+/**
+ * IP 哈希（审计与限流键统一用）：CF-Connecting-IP + ARENA_SESSION_SECRET
+ * SHA-256 前 32 位 hex。D1 dump 不再能反推明文 IP，同 IP 跨请求命中同一桶
+ * 保持限流行为不变。无 CF-Connecting-IP 时落 'unknown'；盐缺失时仍能计算
+ * （只失去不可反推性，部署方需保证 ARENA_SESSION_SECRET 已写入 secret）。
+ */
+export async function clientIpHash(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const salt = env.ARENA_SESSION_SECRET || '';
+  const data = new TextEncoder().encode(ip + '\x00' + salt);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+}
+
 /** 语料回流导出：flag 形状令牌在源头确定性打码。 */
 export const redactFlagTokens = (s) => String(s).replace(/FLAG\{[^}]*\}/g, 'FLAG{REDACTED}');
 
