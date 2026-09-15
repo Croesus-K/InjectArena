@@ -9,3 +9,7 @@ data/
 # wrangler 本地状态与密钥（arena-worker）
 .wrangler/
 .dev.vars
+
+.dev.vars*
+!.dev.vars.example
+!.env.example

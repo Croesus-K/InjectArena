@@ -37,7 +37,13 @@
               "other"
             ]
           },
-          "text": { "type": "string", "minLength": 4, "maxLength": 600 }
+          "text": { "type": "string", "minLength": 4, "maxLength": 600 },
+          "kind": {
+            "type": "string",
+            "enum": ["attack", "benign"],
+            "default": "attack",
+            "description": "载荷性质：attack=试图破阵；benign=正常业务请求，用于测算误杀率。不填按 attack 算（向后兼容）。"
+          }
         }
       }
     }
