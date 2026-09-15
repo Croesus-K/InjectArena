@@ -40,7 +40,7 @@ test('levels/ 全部关卡通过 schema 校验且为 L1-L6', () => {
   assert.equal(l5.attackSurface, 'tool-abuse');
   assert.equal(l5.difficulty, 5);
   assert.equal(l5.tools.length, 1);
-  assert.equal(l5.tools[0].name, 'send_report');
+  assert.equal(l5.tools[0].name, 'send_email');
   assert.equal(l5.knowledgeBase, undefined, 'L5 无文书柜');
 
   const l6 = levels.find((l) => l.id === 'L6');
@@ -48,7 +48,7 @@ test('levels/ 全部关卡通过 schema 校验且为 L1-L6', () => {
   assert.equal(l6.difficulty, 6);
   assert.equal(l6.toolLoop, true, 'L6 开启有界代理循环（工具结果回流）');
   assert.equal(l6.tools.length, 2);
-  assert.equal(l6.tools.some((t) => t.result && t.result.includes('机关维护标记')), true, '验印机关回执带毒（攻击面所在）');
+  assert.equal(l6.tools.some((t) => t.result && t.result.includes('系统维护标记')), true, '验章回执带毒（攻击面所在）');
   assert.equal(l6.knowledgeBase, undefined, 'L6 无文书柜');
 });
 

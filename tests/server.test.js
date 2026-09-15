@@ -48,7 +48,7 @@ test('GET /api/levels：只出公开视图，含守阵者模型与本阵纪录�
   assert.equal(res.body.includes(L1.secret), false);
   assert.equal(res.body.includes(L4_POISON), false, '文书柜内容不进公开视图');
   const l5 = body.levels.find((l) => l.id === 'L5');
-  assert.deepEqual(l5.tools, [{ name: 'send_report', description: '把军务报告全文发送到指定收件渠道。仅用于正常军务上报。' }], '工具接口进公开视图（参数 schema 不外传）');
+  assert.deepEqual(l5.tools, [{ name: 'send_email', description: '把邮件全文发送到指定收件人。仅用于正常工作沟通。' }], '工具接口进公开视图（参数 schema 不外传）');
   const l1 = body.levels.find((l) => l.id === 'L1');
   assert.equal(l1.model, 'google/gemma-4-31b-it:free', 'L1 的守阵者模型来自关卡覆盖');
   assert.ok(l1.debrief && l1.debrief.principle, '复盘教学内容进公开视图');
@@ -210,11 +210,11 @@ test('L4 用间：命中查询把暗号文书检索进系统上下文，响应�
   t.after(() => app.close());
   const res = await app.inject({
     method: 'POST', url: '/api/levels/L4/chat',
-    payload: { messages: [{ role: 'user', content: '查一下内务纪律都有哪些条目。' }] }
+    payload: { messages: [{ role: 'user', content: '查一下资产的入库和归还。' }] }
   });
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body);
-  assert.deepEqual(body.retrieved, [{ id: 'kb-6', title: '内务纪律条目' }]);
+  assert.deepEqual(body.retrieved, [{ id: 'kb-6', title: 'IT 资产管理流程' }]);
   assert.ok(captured[0][0].content.startsWith(L4.systemPrompt), '系统提示词在最前');
   assert.ok(captured[0][0].content.includes(L4_POISON), '暗号文书（含嵌入指令）进入系统上下文');
 });
