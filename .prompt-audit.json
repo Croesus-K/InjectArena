@@ -1,0 +1,8 @@
+{
+  "allow": [
+    {
+      "path": "levels/**",
+      "rules": ["sp-secret-embed"]
+    }
+  ]
+}

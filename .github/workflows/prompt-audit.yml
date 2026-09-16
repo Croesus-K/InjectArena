@@ -26,8 +26,8 @@ jobs:
         with:
           fail-on: high
           # M0 报告结论（docs/reports/M0-02-injectarena.md）：密令内嵌 systemPrompt
-          # 是关卡机制（预期内告警，非误报），故扫描门禁豁免凭据规则
-          ignore: 'sp-secret-embed'
+          # 是关卡机制（预期内告警，非误报）。M0 阶段用 ignore 全规则关停（粗），
+          # M0+ #3 豁免机制后改为路径级 allow 段——见仓库根 .prompt-audit.json。
 
   regression:
     name: 注入回归门禁
