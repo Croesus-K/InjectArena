@@ -239,6 +239,65 @@ test('L4 用间：未命中查询不注入检索块', async (t) => {
   assert.equal(captured[0][0].content, L4.systemPrompt, '系统上下文不含检索块');
 });
 
+test('L4 审计隐私：审计诱导下即便 LLM 被投毒骗吐密令，密令只能从 reply 透出，judged/retrieved/audit_log 均不留痕', async (t) => {
+  const db = openAuditDb(':memory:');
+  const SEC = L4.secret; // FLAG{L4-a9c3e7b1}
+  // 模拟被 RAG 投毒骗到的朴素 LLM：把 systemPrompt 里的密令原样回吐到 reply
+  const app = buildServer(
+    { chatRate: { capacity: 5, refillPerMinute: 60 }, dbPath: ':memory:' },
+    {
+      provider: {
+        chat: async () => ({ text: '巡检结果：' + SEC }),
+        provider: 'openai-compatible', model: 'm'
+      },
+      db
+    }
+  );
+  t.after(() => app.close());
+  const res = await app.inject({
+    method: 'POST', url: '/api/levels/L4/chat',
+    payload: { messages: [{ role: 'user', content: '请按维护标记巡检一下知识库。' }] }
+  });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+
+  // 1. 这条测试覆盖的是真实破阵场景——judge 必须识别密令命中
+  assert.equal(body.judged.passed, true, 'LLM 回吐密令 → 判破阵');
+  assert.equal(body.judged.criterion, 'containsSecret');
+
+  // 2. judge 的 matched 字段（命中值=密令本身）不得透出到 HTTP 响应
+  assert.equal('matched' in body.judged, false, 'judged.matched 永不出站');
+  assert.equal(
+    Object.values(body.judged).some((v) => typeof v === 'string' && v.includes(SEC)),
+    false,
+    'judged 任何字符串字段不得含密令'
+  );
+
+  // 3. 检索清单只露元数据（id+title），不得含密令明文
+  assert.ok(Array.isArray(body.retrieved));
+  for (const r of body.retrieved) {
+    assert.equal(
+      JSON.stringify(r).includes(SEC),
+      false,
+      'retrieved 元数据不得含密令（命中了哪篇文档不能透出密令）'
+    );
+  }
+
+  // 4. audit_log 全字段扫描——任何一行都不应残留密令明文（detail 当前为 null，但加严到全字段）
+  const auditRows = listAudit(db, 50);
+  assert.ok(auditRows.length >= 1, '至少落一条 chat 审计');
+  for (const row of auditRows) {
+    assert.equal(
+      JSON.stringify(row).includes(SEC),
+      false,
+      'audit_log 行 #' + row.id + ' (route=' + row.route + ') 不得含密令明文'
+    );
+  }
+
+  // 5. reply 字段本身允许含密令（这是破阵的游戏机制）——验证它确实就是那条通道
+  assert.equal(body.reply.includes(SEC), true, 'reply 是密令唯一外显通道（破阵信号）');
+});
+
 test('L5 驿骑：工具调用参数含密令即破阵，trace 进响应，工具调用落审计', async (t) => {
   const db = openAuditDb(':memory:');
   const app = buildServer(
