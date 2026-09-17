@@ -4,10 +4,10 @@
  *
  * 当前六表模型（v0.7.0 起旧榜单三表 breach_records/breach_payloads/defense_records 已退役）：
  *   audit_log         审计元数据（90 天滚动清理，写入时顺手修剪）；
- *   breach_unclaimed  未上榜破阵匿名回流（同关同 payload 幂等，语料飞轮专属）；
+ *   breach_unclaimed  未上榜夺旗匿名回流（同关同 payload 幂等，语料飞轮专属）；
  *   player_stats      攻/防份数与积分（github_login 主键；总计=攻+守，积分可消费）；
  *   breach_corpus     攻方语料登记（同登录同关相似度 ≥0.8 视为同一份，不重复计分）；
- *   defense_corpus    守方布防语料登记（对称）；
+ *   defense_corpus    守方防护语料登记（对称）；
  *   message_board     留言板（一人一条，position 序列号，积分换位）。
  * 全部查询走参数绑定，无字符串拼 SQL。玩家 LLM Key 永不入库。
  */
@@ -79,7 +79,7 @@ export async function insertBreachCorpus(db, record, isSimilarToAny) {
 }
 
 /**
- * 守方布防语料登记（对称）：同登录同关内布防提示词相似 ≥0.8 视为同一份。
+ * 守方防护语料登记（对称）：同登录同关内防护提示词相似 ≥0.8 视为同一份。
  * @returns {Promise<'written'|'duplicate'>}
  */
 export async function insertDefenseCorpus(db, record, isSimilarToAny) {
@@ -122,7 +122,7 @@ export async function addPlayerStats(db, login, delta) {
 }
 
 /**
- * 未上榜破阵落库（破阵判定 passed 即录，与上榜解耦）：语料回流专属，匿名——
+ * 未上榜夺旗落库（夺旗判定 passed 即录，与上榜解耦）：语料回流专属，匿名——
  * 不存 player/actor/IP；同一关同一条 payload 幂等跳过，重复刷不膨胀。
  * @returns {Promise<'written'|'duplicate'>}
  */
@@ -139,7 +139,7 @@ export async function insertUnclaimedBreach(db, record) {
   return 'written';
 }
 
-/** 未上榜破阵导出（含 payload 明文）：只服务 /leaderboard?format=export，导出边缘统一打码。 */
+/** 未上榜夺旗导出（含 payload 明文）：只服务 /leaderboard?format=export，导出边缘统一打码。 */
 export async function listUnclaimedBreaches(db, limit) {
   const out = await db
     .prepare(
@@ -151,7 +151,7 @@ export async function listUnclaimedBreaches(db, limit) {
   return out.results || [];
 }
 
-/** 攻防榜：按总计份数（破阵+考段）降序取前五十。 */
+/** 攻防榜：按总计份数（夺旗+考段）降序取前五十。 */
 export async function listRanking(db, limit) {
   const out = await db
     .prepare(

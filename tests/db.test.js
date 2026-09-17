@@ -60,7 +60,7 @@ test('maskIp：IPv4 取前两段、IPv6 取前两组、异常输入兜底', () =
   assert.equal(maskIp('weird'), 'weir*');
 });
 
-test('名将榜：插入、更短覆盖、更长保留', () => {
+test('攻方榜：插入、更短覆盖、更长保留', () => {
   const db = openAuditDb(':memory:');
   const base = { levelId: 'L1', player: '1.2.*.*', tokens: 40, ts: '2026-08-31T00:00:00Z' };
   assert.equal(upsertBreachRecord(db, { ...base, chars: 50, payloadText: '长招式' }), 'inserted');
@@ -74,7 +74,7 @@ test('名将榜：插入、更短覆盖、更长保留', () => {
   db.close();
 });
 
-test('段位榜：插入、更优覆盖、同率样本大者优先', () => {
+test('守方榜：插入、更优覆盖、同率样本大者优先', () => {
   const db = openAuditDb(':memory:');
   const base = { levelId: 'L2', player: '5.6.*.*', leakRate: 0.1, fpRate: null, ts: '2026-08-31T00:00:00Z' };
   assert.equal(upsertDefenseRecord(db, { ...base, blockRate: 0.8, evaluated: 50 }), 'inserted');

@@ -4,7 +4,7 @@
  *
  * 一把钥匙三处用（同一个 ARENA_SESSION_SECRET）：
  *   1. GitHub 会话 Cookie（30 天）
- *   2. 破阵凭证（2 小时，防伪造上榜——灌水上限 = 真实破阵）
+ *   2. 夺旗凭证（2 小时，防伪造上榜——灌水上限 = 真实夺旗）
  *   3. OAuth state（10 分钟，防 CSRF）
  *
  * 签名格式：<base64url(JSON payload)>.<base64url(HMAC)>；验证常量时间比较。

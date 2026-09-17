@@ -5,7 +5,7 @@
  * 扩展 anthropic 等专有协议适配器，调用方接口不变。
  *
  * createProviderRegistry：按模型名缓存 provider 实例——每关可以配
- * 不同的守阵者模型（level.model 覆盖），同一模型只建一次。
+ * 不同的守关 AI模型（level.model 覆盖），同一模型只建一次。
  */
 
 const { createOpenAICompatible } = require('./openaiCompatible.js');

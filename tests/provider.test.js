@@ -80,7 +80,7 @@ test('tools 透传与 tool_calls 解析（L5 工具滥用攻击面）', async ()
         tool_calls: [{
           id: 'call_1',
           type: 'function',
-          function: { name: 'send_report', arguments: '{"destination":"兵部","content":"报告"}' }
+          function: { name: 'send_report', arguments: '{"destination":"运维部","content":"报告"}' }
         }]
       }
     }],
@@ -99,7 +99,7 @@ test('tools 透传与 tool_calls 解析（L5 工具滥用攻击面）', async ()
   assert.equal(res.toolCalls.length, 1);
   assert.equal(res.toolCalls[0].id, 'call_1');
   assert.equal(res.toolCalls[0].name, 'send_report');
-  assert.deepEqual(res.toolCalls[0].args, { destination: '兵部', content: '报告' }, 'arguments JSON 自动解析');
+  assert.deepEqual(res.toolCalls[0].args, { destination: '运维部', content: '报告' }, 'arguments JSON 自动解析');
 });
 
 test('tool_calls 的畸形 arguments 解析为空对象而非抛错', async () => {

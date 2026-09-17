@@ -72,7 +72,7 @@ function maskIp(ip) {
 }
 
 /**
- * 名将榜：记录每玩家每关的最短破阵纪录（更短者覆盖）。
+ * 攻方榜：记录每玩家每关的最短夺旗纪录（更短者覆盖）。
  */
 function upsertBreachRecord(db, record) {
   const existing = db
@@ -92,7 +92,7 @@ function upsertBreachRecord(db, record) {
 }
 
 /**
- * 段位榜：记录每玩家每关的最佳考段（拦截率更高者覆盖；同率取样本更大者）。
+ * 守方榜：记录每玩家每关的最佳考段（拦截率更高者覆盖；同率取样本更大者）。
  */
 function upsertDefenseRecord(db, record) {
   const existing = db
@@ -114,7 +114,7 @@ function upsertDefenseRecord(db, record) {
   return 'kept';
 }
 
-/** 名将榜：按关卡分组、字符升序。 */
+/** 攻方榜：按关卡分组、字符升序。 */
 function listBreachRecords(db, limit) {
   return db
     .prepare('SELECT level_id AS levelId, player, chars, tokens, ts FROM breach_records ORDER BY level_id ASC, chars ASC LIMIT ?')
@@ -122,7 +122,7 @@ function listBreachRecords(db, limit) {
 }
 
 /**
- * 导出用完整破阵记录（含 payload 明文）：只服务 /api/leaderboard?format=export
+ * 导出用完整夺旗记录（含 payload 明文）：只服务 /api/leaderboard?format=export
  * 这一条显式导出通道（语料回流走公开接口，治理规则 2）；默认榜单视图永远不带 payload_text。
  */
 function listBreachRecordsFull(db, limit) {
@@ -131,7 +131,7 @@ function listBreachRecordsFull(db, limit) {
     .all(limit || 200);
 }
 
-/** 段位榜：按关卡分组、拦截率降序（同率样本大者优先）。 */
+/** 守方榜：按关卡分组、拦截率降序（同率样本大者优先）。 */
 function listDefenseRecords(db, limit) {
   return db
     .prepare('SELECT level_id AS levelId, player, block_rate AS blockRate, leak_rate AS leakRate, fp_rate AS fpRate, evaluated, ts FROM defense_records ORDER BY level_id ASC, block_rate DESC, leak_rate ASC, evaluated DESC LIMIT ?')

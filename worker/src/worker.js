@@ -6,7 +6,7 @@
  *   1. BYOK 反转：LLM Key 由玩家在浏览器「配置」填写，随请求头进入 Worker 后
  *      只透传给白名单供应商，不落盘、不进日志、响应即焚——站内零 Key、零成本；
  *   2. 身份锚定：GitHub OAuth（client_secret 在 Worker secret）签发 HMAC 会话
- *      Cookie；上榜凭证由破阵响应签发，/records 兑换时才落 D1——灌水上限=真实破阵；
+ *      Cookie；上榜凭证由夺旗响应签发，/records 兑换时才落 D1——灌水上限=真实夺旗；
  *   3. 约束不变：secret/systemPrompt 永不出服务端、judge 确定性裁判、
  *      消息白名单、每 IP 令牌桶限流、审计只存元数据。
  *
@@ -188,7 +188,7 @@ async function getLeaderboard(request, env) {
       redacted: true,
       // 旧 breach_records 通道已弃用：breaches 恒空（字段保留，飞轮 @1/@2 兼容）
       breaches: [],
-      // 全部破阵语料（含未上榜）走 unclaimedBreaches：匿名、边缘统一打码
+      // 全部夺旗语料（含未上榜）走 unclaimedBreaches：匿名、边缘统一打码
       unclaimedBreaches: unclaimed.map((r) => ({
         ...r,
         attackSurface: (LEVEL_BY_ID.get(r.levelId) || {}).attackSurface || null,
@@ -198,13 +198,13 @@ async function getLeaderboard(request, env) {
     });
   }
   return jsonResponse({
-    // 攻防榜：按总计份数排序前五十，仅 GitHub 登录者——破阵/考段完成即自动计入
+    // 攻防榜：按总计份数排序前五十，仅 GitHub 登录者——夺旗/考段完成即自动计入
     ranking: await store.listRanking(env.DB, 50)
   });
 }
 
 // ---------------------------------------------------------------------------
-// 留言板（v0.6.0）：破阵/考段凭证即可留名留言；时间序；积分换位
+// 留言板（v0.6.0）：夺旗/考段凭证即可留名留言；时间序；积分换位
 // ---------------------------------------------------------------------------
 
 function boardEntryRow(row, rankByLogin) {
@@ -228,7 +228,7 @@ async function getBoard(request, env) {
   return jsonResponse({ entries: rows.map((r) => boardEntryRow(r, rankByLogin)) });
 }
 
-/** 留言：需 GitHub 登录 + 2h 内破阵/考段凭证（防未破阵灌水）。一人一条，重复提交即更新内容。 */
+/** 留言：需 GitHub 登录 + 2h 内夺旗/考段凭证（防未夺旗灌水）。一人一条，重复提交即更新内容。 */
 async function postBoard(request, env) {
   const session = await readSession(request, env);
   if (!session) return jsonResponse({ error: '留言需要先登录 GitHub 账号。' }, 401);
@@ -240,7 +240,7 @@ async function postBoard(request, env) {
   const credential = typeof body?.credential === 'string' ? body.credential : '';
   const claims = await verifyToken(env.ARENA_SESSION_SECRET, credential).catch(() => null);
   if (!claims || (claims.kind !== 'breach' && claims.kind !== 'defense')) {
-    return jsonResponse({ error: '留言需要有效的破阵/考段凭证（2 小时内）。' }, 403);
+    return jsonResponse({ error: '留言需要有效的夺旗/考段凭证（2 小时内）。' }, 403);
   }
 
   const outcome = await store.upsertBoardMessage(env.DB, {
@@ -265,7 +265,7 @@ async function postBoardSwap(request, env) {
 }
 
 // ---------------------------------------------------------------------------
-// 攻方：闯关（玩家 Key 中转 + 确定性判定 + 破阵凭证）
+// 攻方：闯关（玩家 Key 中转 + 确定性判定 + 夺旗凭证）
 // ---------------------------------------------------------------------------
 
 async function postChat(request, env, ctx, levelId) {
@@ -347,8 +347,8 @@ async function postChat(request, env, ctx, levelId) {
 
   const verdict = agentResult.verdict;
 
-  // 破阵即录（与上榜解耦）：payload 落 breach_unclaimed（匿名、幂等），语料回流专属。
-  // 不阻塞响应；上榜与否、凭证兑换与否都不影响这条记录——收录规则：不上榜破阵也收。
+  // 夺旗即录（与上榜解耦）：payload 落 breach_unclaimed（匿名、幂等），语料回流专属。
+  // 不阻塞响应；上榜与否、凭证兑换与否都不影响这条记录——收录规则：不上榜夺旗也收。
   if (verdict.passed) {
     ctx.waitUntil(
       store.insertUnclaimedBreach(env.DB, {
@@ -361,7 +361,7 @@ async function postChat(request, env, ctx, levelId) {
     );
   }
 
-  // 份数榜计分（v0.6.0）：仅 GitHub 登录者；破阵即自动登记语料并 +1 份 +1 分，
+  // 份数榜计分（v0.6.0）：仅 GitHub 登录者；夺旗即自动登记语料并 +1 份 +1 分，
   // 同关内相似度 ≥0.8 视为同一份（不重复升级）。游客只进匿名回流，不计份数。
   if (verdict.passed && session) {
     ctx.waitUntil(
@@ -380,7 +380,7 @@ async function postChat(request, env, ctx, levelId) {
     );
   }
 
-  // 破阵份数已自动计入，凭证用于 2h 内留名留言（留言板）；matched 命中值就是 secret，
+  // 夺旗份数已自动计入，凭证用于 2h 内留名留言（留言板）；matched 命中值就是 secret，
   // 凭证里只放判定结果与元数据，绝不放 secret。
   let credential = null;
   if (verdict.passed && env.ARENA_SESSION_SECRET) {
@@ -412,7 +412,7 @@ async function postChat(request, env, ctx, levelId) {
 }
 
 // ---------------------------------------------------------------------------
-// 守方：布防跑分（玩家 Key 中转 + 条数硬顶 + 破阵凭证）
+// 守方：防护跑分（玩家 Key 中转 + 条数硬顶 + 夺旗凭证）
 // ---------------------------------------------------------------------------
 
 function parseDefenseRequest(body) {
@@ -493,8 +493,8 @@ async function finalizeDefense(env, ip, session, level, defensePrompt, rejectMar
     credential = { kind: 'defense', token, blockRate: report.attack.blockRate };
   }
 
-  // 份数榜计分（v0.6.0）：登录者考段完成即自动登记布防语料并 +1 份 +1 分；
-  // 同关内布防相似度 ≥0.8 视为同一份。同步执行：评测子请求预算 41+4 < 50 上限。
+  // 份数榜计分（v0.6.0）：登录者考段完成即自动登记防护语料并 +1 份 +1 分；
+  // 同关内防护相似度 ≥0.8 视为同一份。同步执行：评测子请求预算 41+4 < 50 上限。
   if (report.attack.evaluated > 0 && session) {
     try {
       const outcome = await store.insertDefenseCorpus(env.DB, {
@@ -525,7 +525,7 @@ async function postDefense(request, env, ctx, levelId, stream) {
   }
 
   const parsed = parseDefenseRequest(await safeJson(request));
-  if (!parsed) return jsonResponse({ error: '布防内容需 10-4000 字。' }, 400);
+  if (!parsed) return jsonResponse({ error: '防护内容需 10-4000 字。' }, 400);
 
   const parsedProvider = evalProvider(request, env);
   if (!parsedProvider.ok) return jsonResponse({ error: parsedProvider.error }, 400);

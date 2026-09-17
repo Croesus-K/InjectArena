@@ -1,8 +1,8 @@
 'use strict';
 /**
  * 攻心 InjectArena —— 前端（原生 JS，零构建，BYOK 站内部署版）。
- * 攻侧：关卡列表、聊天框、破阵判定（破阵后凭服务端签发的凭证自填名号上榜）。
- * 守侧：布防插槽编辑、跑分开考、拦截率/泄露率/误杀率报告。
+ * 攻侧：关卡列表、聊天框、夺旗判定（夺旗后凭服务端签发的凭证自填名号上榜）。
+ * 守侧：防护插槽编辑、跑分开考、拦截率/泄露率/误杀率报告。
  * BYOK：玩家 Key 只存本机 localStorage，随请求头经站内 Worker 中转发给供应商。
  * 身份：GitHub OAuth 登录（可选），上榜可挂头像与用户名。
  */
@@ -15,8 +15,8 @@
     levels: [],
     currentId: null,
     mode: 'attack',     // attack | defense | board
-    history: [],        // [{role, content}] 当前阵的对话历史（不含系统提示词）
-    records: {},        // levelId -> {chars, tokens, payloadText} 本页最短破阵纪录
+    history: [],        // [{role, content}] 当前关的对话历史（不含系统提示词）
+    records: {},        // levelId -> {chars, tokens, payloadText} 本页最短夺旗纪录
     busy: false,
     defenseBusy: false,
     config: null,       // {baseUrl, model, key} | null
@@ -331,7 +331,7 @@
     if (document.visibilityState === 'visible' && Date.now() - lastMeAt >= 30000) loadMe();
   });
 
-  /* ---------- 阵法列表 ---------- */
+  /* ---------- 关卡列表 ---------- */
 
   function stars(n) {
     // 难度上限随关卡数据动态扩展（L6 起为 6 星），星盘总数取全库最大难度
@@ -374,10 +374,10 @@
       '<h2>' + lv.id + ' · ' + lv.name + '</h2>' +
       (lv.lesson ? '<p class="lesson"></p>' : '') +
       '<p class="brief"></p>' +
-      '<p class="muted keeper">守阵者：你配置的模型（全关统一 · BYOK）' +
+      '<p class="muted keeper">守关 AI：你配置的模型（全关统一 · BYOK）' +
       (lv.tools && lv.tools.length ? ' · 持工具 ' + lv.tools.map(function (t) { return t.name; }).join('、') : '') +
       '</p>' +
-      '<details><summary>军师提示</summary><p class="hints"></p></details>';
+      '<details><summary>防守思路</summary><p class="hints"></p></details>';
     if (lv.lesson) el.levelHead.querySelector('.lesson').textContent = '考点 · ' + lv.lesson;
     el.levelHead.querySelector('.brief').textContent = lv.brief;
     el.levelHead.querySelector('.hints').textContent = (lv.hints || []).join(' ');
@@ -398,7 +398,7 @@
     var lv = currentLevel();
     el.defenseLevelName.textContent = lv ? lv.id + ' · ' + lv.name : '';
     renderDefenseTemplates();
-    // 已破过的阵：军师提示下方常驻复盘（默认收起）
+    // 已破过的关：防守思路下方常驻复盘（默认收起）
     if (lv && state.records[id]) {
       var node = debriefElement(lv, false);
       if (node) el.levelHead.appendChild(node);
@@ -406,7 +406,7 @@
     el.input.focus();
   }
 
-  /* ---------- 守侧：布防模板库（一键套用）+ 守方教学 ---------- */
+  /* ---------- 守侧：防护模板库（一键套用）+ 守方教学 ---------- */
 
   function renderDefenseTemplates() {
     var lv = currentLevel();
@@ -418,7 +418,7 @@
       el.defenseTemplates.hidden = false;
       var label = document.createElement('span');
       label.className = 'defense-templates-label';
-      label.textContent = '布防模板 · 一键套用：';
+      label.textContent = '防护模板 · 一键套用：';
       el.defenseTemplates.appendChild(label);
       tpls.forEach(function (t) {
         var chip = document.createElement('button');
@@ -437,7 +437,7 @@
       });
     }
 
-    // 守方针对点（每关的防守考点）+ 守方军师提示（递进思路）
+    // 守方针对点（每关的防守考点）+ 守方防守思路（递进思路）
     el.defenseLesson.textContent = lv && lv.defenseBrief ? '守方针对点 · ' + lv.defenseBrief : '';
     el.defenseHintsList.innerHTML = '';
     var dh = (lv && lv.defenseHints) || [];
@@ -557,7 +557,7 @@
         rows.map(function (r, i) { return [rankName(i + 1, r.login), r.breachCount, r.defenseCount, r.total, r.score]; })
       ));
     } else {
-      el.boardEmpty.textContent = '虚位以待——破阵、考段即自动计入（需 GitHub 登录）。';
+      el.boardEmpty.textContent = '虚位以待——夺旗、考段即自动计入（需 GitHub 登录）。';
     }
   }
 
@@ -572,7 +572,7 @@
     div.className = 'msg ' + role;
     var who = document.createElement('div');
     who.className = 'who';
-    who.textContent = role === 'user' ? '你（攻方）' : '守阵者';
+    who.textContent = role === 'user' ? '你（攻方）' : '守关 AI';
     var body = document.createElement('div');
     body.className = 'body';
     body.textContent = content;
@@ -588,14 +588,14 @@
     det.className = 'debrief';
     if (open) det.open = true;
     var sum = document.createElement('summary');
-    sum.textContent = '复盘 · 兵法讲解';
+    sum.textContent = '复盘 · 原理讲解';
     var body = document.createElement('div');
     body.innerHTML =
       '<p class="debrief-label">攻击原理</p><p class="debrief-body"></p>' +
       '<p class="debrief-label">真实案例</p><ul class="debrief-cases"></ul>' +
       '<p class="debrief-label">OWASP LLM Top 10（2025）映射</p><p class="debrief-body"></p>' +
       '<p class="debrief-label">防御要点</p><p class="debrief-body"></p>' +
-      '<p class="debrief-label">布防参考 · 可直接粘贴到「守 · 布防」开考</p><p class="debrief-body debrief-sample"></p>';
+      '<p class="debrief-label">防护参考 · 可直接粘贴到「守 · 防护」开考</p><p class="debrief-body debrief-sample"></p>';
     var ps = body.querySelectorAll('.debrief-body');
     ps[0].textContent = d.principle;
     ps[1].textContent = d.owasp.join('；');
@@ -612,7 +612,7 @@
     return det;
   }
 
-  /** 破阵复盘挂在 banner 之后、随关切换——切关与重复破阵前先清掉上一份，避免跨关堆积。 */
+  /** 夺旗复盘挂在 banner 之后、随关切换——切关与重复夺旗前先清掉上一份，避免跨关堆积。 */
   function removeLooseDebrief() {
     var parent = el.banner.parentElement;
     if (!parent) return;
@@ -640,7 +640,7 @@
       if (m.role === 'assistant' && m.toolTrace && m.toolTrace.length) {
         var tool = document.createElement('div');
         tool.className = 'retrieved-note tool-note';
-        tool.textContent = '驿骑已发：' + m.toolTrace.map(function (t) {
+        tool.textContent = '代发邮件已发：' + m.toolTrace.map(function (t) {
           return t.name + ' → ' + (t.args && t.args.destination ? t.args.destination : '?') +
             '（' + (t.args && t.args.content ? t.args.content.length : 0) + ' 字）';
         }).join('');
@@ -653,7 +653,7 @@
   function renderRecord() {
     var r = state.records[state.currentId];
     el.record.textContent = r
-      ? '本页破阵纪录：最短 ' + r.chars + ' 字 / 约 ' + r.tokens + ' token'
+      ? '本页夺旗纪录：最短 ' + r.chars + ' 字 / 约 ' + r.tokens + ' token'
       : '';
   }
 
@@ -675,7 +675,7 @@
     el.send.textContent = b ? '运功中…' : '出 招';
   }
 
-  /* ---------- 言 · 留言板：破阵/考段凭证留言，提交时间序，积分换位 ---------- */
+  /* ---------- 言 · 留言板：夺旗/考段凭证留言，提交时间序，积分换位 ---------- */
 
   async function loadMessages() {
     el.messagesList.innerHTML = '<p class="muted">加载中……</p>';
@@ -692,7 +692,7 @@
     el.messagesList.innerHTML = '';
     var entries = (state.messages && state.messages.entries) || [];
     if (!entries.length) {
-      el.messagesList.innerHTML = '<p class="muted">还没有留言——破一阵，留下你的名号。</p>';
+      el.messagesList.innerHTML = '<p class="muted">还没有留言——破一关，留下你的名号。</p>';
       return;
     }
     var table = document.createElement('table');
@@ -776,7 +776,7 @@
       .catch(function (e) { alert('网络错误：' + e.message); });
   }
 
-  /* ---------- 留言弹窗（破阵/考段凭证兑换为留言；份数已自动计入） ---------- */
+  /* ---------- 留言弹窗（夺旗/考段凭证兑换为留言；份数已自动计入） ---------- */
 
   var pendingRecord = null; // {kind, credential, level}
 
@@ -784,11 +784,11 @@
     pendingRecord = info;
     el.recordError.textContent = '';
     var isBreach = info.kind === 'breach';
-    el.recordTitle.textContent = isBreach ? '破阵成功 · 留言' : '考段完成 · 留言';
+    el.recordTitle.textContent = isBreach ? '夺旗成功 · 留言' : '考段完成 · 留言';
     el.recordSummary.textContent = isBreach
       ? info.level.id + ' · ' + info.level.name + ' —— 本招 ' + info.credential.chars + ' 字' +
         (info.credential.tokens ? ' / ' + info.credential.tokens + ' token' : '') + '。份数已自动计入（登录者），留言凭证 2 小时内有效。'
-      : info.level.id + ' · ' + info.level.name + ' —— 拦截率 ' + Math.round(info.credential.blockRate * 1000) / 10 + '%。布防份数已自动计入（登录者），留言凭证 2 小时内有效。';
+      : info.level.id + ' · ' + info.level.name + ' —— 拦截率 ' + Math.round(info.credential.blockRate * 1000) / 10 + '%。防护份数已自动计入（登录者），留言凭证 2 小时内有效。';
     el.recordLoginHint.hidden = Boolean(state.session);
     el.recordMessage.value = '';
     el.recordSubmit.disabled = !state.session;
@@ -869,17 +869,17 @@
               payloadText: text
             };
           }
-          showBanner('⚔ 破阵！密令已被你夺下。（本招 ' + text.length + ' 字' +
+          showBanner('⚔ 夺旗！密钥已被你拿下。（本招 ' + text.length + ' 字' +
             (data.tokens ? ' / ' + data.tokens + ' token' : '') + '）', true);
           showDebrief(currentLevel(), true);
           renderRecord();
           if (data.credential && data.credential.token) {
             openRecordDialog({ kind: 'breach', credential: data.credential, level: currentLevel() });
           } else {
-            pushNotice('本站暂未启用上榜（站长未完成凭证配置）——破阵已记录在本页。');
+            pushNotice('本站暂未启用上榜（站长未完成凭证配置）——夺旗已记录在本页。');
           }
         } else {
-          showBanner('城未破。守阵者没有说出密令——换一阵法再攻。', false);
+          showBanner('旗未夺。守关 AI没有说出密钥——换一关卡再攻。', false);
         }
       }
     } catch (e) {
@@ -900,7 +900,7 @@
     }
   });
 
-  /* ---------- 守侧：布防跑分 ---------- */
+  /* ---------- 守侧：防护跑分 ---------- */
 
   function pct(x) { return Math.round(x * 1000) / 10 + '%'; }
 

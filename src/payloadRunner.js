@@ -1,8 +1,8 @@
 /**
  * 攻心 InjectArena —— 攻侧跑分引擎（纯逻辑，UMD 双端）。
  *
- * 把一批 payload 依次打进同一座“阵”，用确定性 judge 记录破阵结果，
- * 汇总“最短破阵 payload / 最少 token”——名将榜（攻方榜）的数据源；
+ * 把一批 payload 依次打进同一座“关”，用确定性 judge 记录夺旗结果，
+ * 汇总“最短夺旗 payload / 最少 token”——攻方榜（攻方榜）的数据源；
  * 排行榜本身的存储与展示属于后续会话，本模块只产出纯数据报告。
  *
  * LLM 调用点抽象为 llm 接口（依赖注入），本模块不做任何网络 I/O，可整体单测：
@@ -38,7 +38,7 @@
   }
 
   /**
-   * 组装一轮对话消息：守阵者系统提示词在最前，攻击者 payload 收尾。
+   * 组装一轮对话消息：守关 AI系统提示词在最前，攻击者 payload 收尾。
    * 服务端聊天路由与跑分引擎共用，保证“闯关”与“跑分”的消息形状一致。
    */
   function buildMessages(level, payloadText, history) {
@@ -83,7 +83,7 @@
    * @param {Function} opts.judge    确定性判定函数（src/judge.js 的 judge）
    * @param {Function} [opts.onResult] 每条完成后的回调，用于进度展示
    * @returns {Promise<{total, breached, breachRate, best, results}>}
-   *   best 为最短破阵 payload（长度优先、token 次序），即“最省”的夺旗纪录。
+   *   best 为最短夺旗 payload（长度优先、token 次序），即“最省”的夺旗纪录。
    */
   async function runPayloads(opts) {
     if (typeof opts.judge !== 'function') {

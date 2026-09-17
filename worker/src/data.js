@@ -7,7 +7,7 @@
  * 不合格冷启动即抛错（Workers 表现为部署后请求报 1101，等价于 Node 版拒启）。
  *
  * publicLevel 复制自 src/levels.js（该文件为 Node 专属——依赖 node:fs 的目录加载器，
- * 无法进 Worker）；BYOK 站内部署下守阵者模型 = 玩家配置，故 model 恒为 null。
+ * 无法进 Worker）；BYOK 站内部署下守关 AI模型 = 玩家配置，故 model 恒为 null。
  */
 
 import jsv from '../../src/jsonschema.js';
@@ -50,10 +50,10 @@ export function publicLevel(level) {
     lesson: level.lesson || null, // 考点（攻方针对点）
     defenseBrief: level.defenseBrief,
     hints: level.hints || [],
-    defenseHints: Array.isArray(level.defenseHints) ? level.defenseHints : [], // 守方军师提示
+    defenseHints: Array.isArray(level.defenseHints) ? level.defenseHints : [], // 守方防守思路
     defenseTemplates: Array.isArray(level.defenseTemplates) ? level.defenseTemplates : [],
     hasGuard: Boolean(level.guard),
-    model: null, // BYOK：守阵者模型由玩家在「配置」里提供，全关统一
+    model: null, // BYOK：守关 AI模型由玩家在「配置」里提供，全关统一
     tools: Array.isArray(level.tools) ? level.tools.map((t) => ({ name: t.name, description: t.description })) : [],
     debrief: level.debrief || null
   };

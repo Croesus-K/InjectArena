@@ -1,4 +1,4 @@
-/* 攻心 InjectArena —— 暗色水墨 · 兵法气质 */
+/* 攻心 InjectArena —— 暗色水墨 · 水墨气质 */
 
 :root {
   --bg: #14161c;
@@ -67,7 +67,7 @@ main {
   min-height: 0;
 }
 
-/* ---- 阵法列表 ---- */
+/* ---- 关卡列表 ---- */
 
 #levels h2, #level-head h2 {
   font-family: var(--serif);
@@ -98,7 +98,7 @@ main {
 .level-meta { color: var(--ink-dim); font-size: 12px; margin: 2px 0 4px; }
 .level-brief { color: var(--ink-dim); font-size: 12px; }
 
-/* ---- 对阵区 ---- */
+/* ---- 对战区 ---- */
 
 #arena {
   display: flex;
@@ -118,7 +118,7 @@ main {
 /* 考点（教学）：攻方针对点，关卡头部高亮 */
 #level-head .lesson { color: var(--accent); font-size: 12px; margin: 4px 0 2px; line-height: 1.7; }
 
-/* 守方教学：针对点 + 军师提示 */
+/* 守方教学：针对点 + 防守思路 */
 .defense-lesson { color: var(--accent); font-size: 12px; margin: 8px 0 2px; line-height: 1.7; }
 .defense-hints { margin: 4px 0 8px; font-size: 12px; color: var(--ink-dim); }
 .defense-hints summary { cursor: pointer; }
@@ -226,7 +226,7 @@ footer {
 .tab:hover { border-color: var(--accent); color: var(--ink); }
 .tab.active { color: var(--ink); border-color: var(--accent); background: var(--accent-soft); }
 
-/* ---- 守方布防面板 ---- */
+/* ---- 守方防护面板 ---- */
 
 #defense-head h2 { font-family: var(--serif); font-size: 18px; letter-spacing: 2px; margin: 0 0 8px; }
 .muted { color: var(--ink-dim); font-size: 13px; }
@@ -338,7 +338,7 @@ footer {
 
 .progress-line span { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
 
-/* ---- 复盘 · 兵法讲解 ---- */
+/* ---- 复盘 · 原理讲解 ---- */
 
 details.debrief {
   margin: 8px 0 4px;
@@ -362,7 +362,7 @@ details.debrief summary {
 .debrief-cases li { margin: 3px 0; }
 .debrief-sample { margin: 2px 0 0; padding: 6px 10px; border: 1px dashed var(--ok); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 13px; }
 
-/* ---- 守侧 · 布防模板库 ---- */
+/* ---- 守侧 · 防护模板库 ---- */
 
 .defense-templates { margin: 8px 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .defense-templates-label { font-size: 12px; color: var(--accent); font-family: var(--serif); letter-spacing: 1px; }

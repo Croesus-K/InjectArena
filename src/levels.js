@@ -47,7 +47,7 @@ function loadLevels(dir) {
 /**
  * 关卡的对外（HTTP）视图：绝不包含 systemPrompt 与 secret——
  * secret 一旦离开服务端，判定就失去了秘密性。
- * model：守阵者模型（关卡可覆盖，缺省用部署默认）——公开信息，用于前端展示。
+ * model：守关 AI模型（关卡可覆盖，缺省用部署默认）——公开信息，用于前端展示。
  */
 function publicLevel(level, defaultModel) {
   return {
@@ -60,14 +60,14 @@ function publicLevel(level, defaultModel) {
     lesson: level.lesson || null,
     defenseBrief: level.defenseBrief,
     hints: level.hints || [],
-    // 守方军师提示（教学）：防守思路分条，与 hints 攻方对应
+    // 守方防守思路（教学）：防守思路分条，与 hints 攻方对应
     defenseHints: Array.isArray(level.defenseHints) ? level.defenseHints : [],
-    // 布防模板库（守方教学，无敏感内容）：前端一键套用进布防插槽
+    // 防护模板库（守方教学，无敏感内容）：前端一键套用进防护插槽
     defenseTemplates: Array.isArray(level.defenseTemplates) ? level.defenseTemplates : [],
     hasGuard: Boolean(level.guard),
     model: level.model || defaultModel || null,
     tools: Array.isArray(level.tools) ? level.tools.map((t) => ({ name: t.name, description: t.description })) : [],
-    // 复盘教学（公开内容）：破阵后的攻击原理/真实案例/OWASP 映射/防御要点
+    // 复盘教学（公开内容）：夺旗后的攻击原理/真实案例/OWASP 映射/防御要点
     debrief: level.debrief || null
   };
 }

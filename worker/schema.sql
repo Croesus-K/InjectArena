@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   github_login TEXT
 );
 
--- 未上榜破阵（破阵判定 passed 即录，与上榜解耦）：语料回流专属，匿名——
+-- 未上榜夺旗（夺旗判定 passed 即录，与上榜解耦）：语料回流专属，匿名——
 -- 不存 player/actor/IP；同关同 payload 幂等跳过；仅导出通道读取，边缘统一打码
 CREATE TABLE IF NOT EXISTS breach_unclaimed (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS breach_unclaimed (
 
 -- ---------------------------------------------------------------------------
 -- 份数榜与留言板（v0.6.0）：榜单 = 有效语料份数前十（仅 GitHub 登录者）；
--- 破阵/考段完成即自动计分（相似度 ≥0.8 视为同一份，不重复计）；积分可消费（换位），等级只增。
+-- 夺旗/考段完成即自动计分（相似度 ≥0.8 视为同一份，不重复计）；积分可消费（换位），等级只增。
 -- ---------------------------------------------------------------------------
 
 -- 玩家统计：等级 = breach_count + defense_count（只增）；score = 可消费积分
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS breach_corpus (
 );
 CREATE INDEX IF NOT EXISTS idx_breach_corpus_player ON breach_corpus (github_login, level_id);
 
--- 守方布防语料登记（对称：布防提示词相似度去重）
+-- 守方防护语料登记（对称：防护提示词相似度去重）
 CREATE TABLE IF NOT EXISTS defense_corpus (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   github_login TEXT NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS defense_corpus (
 );
 CREATE INDEX IF NOT EXISTS idx_defense_corpus_player ON defense_corpus (github_login, level_id);
 
--- 留言板：一人一条（重复破阵可更新内容，position 保留）；position 即序列号（初始=提交时间序）
+-- 留言板：一人一条（重复夺旗可更新内容，position 保留）；position 即序列号（初始=提交时间序）
 CREATE TABLE IF NOT EXISTS message_board (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   github_login TEXT NOT NULL UNIQUE,
