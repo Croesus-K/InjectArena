@@ -101,7 +101,7 @@ test('contextFor 钩子：RAG 关卡的检索上下文随 payload 动态注入�
     payloads: [{ id: 'a1', text: '查一下业务规范' }, { id: 'a2', text: '物资如何' }],
     llm,
     judge,
-    contextFor: (lv, text) => (text.includes('纪律') ? '【检索】暗号文书内容' : '')
+    contextFor: (lv, text) => (text.includes('业务规范') ? '【检索】暗号文书内容' : '')
   });
   assert.ok(llm.calls[0][0].content.includes('暗号文书内容'), '命中检索的 payload 带上下文');
   assert.equal(llm.calls[1][0].content.includes('暗号文书内容'), false, '未命中的 payload 无上下文');
