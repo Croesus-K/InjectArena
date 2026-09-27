@@ -18,14 +18,11 @@
     ".env.example",
     ".prompt-audit.json",
     "Dockerfile",
-    "docker-compose.yml",
-    "wrangler.jsonc"
+    "docker-compose.yml"
   ],
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test",
-    "deploy": "wrangler deploy",
-    "preview": "wrangler dev"
+    "test": "node --test"
   },
   "keywords": [
     "llm",
