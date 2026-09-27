@@ -3,6 +3,23 @@
 所有对 `injectarena` 包有显著影响的变更都记录在此文件。版本遵循
 [语义化版本](https://semver.org/lang/zh-CN/)：MAJOR.MINOR.PATCH。
 
+## [0.7.3] - 2026-09-19
+
+### Added
+- **npm 首发 `injectarena@0.7.3`**（registry 唯一版本）；`files` 白名单
+  硬化发布物（防 worker/.wrangler 本地状态随包泄漏）。
+- prompt-audit 门禁豁免迁移：删 workflow ignore 粗变通，改仓库根
+  `.prompt-audit.json` 自声明（密令内嵌 systemPrompt 为关卡机制预期告警）。
+
+### Changed
+- 军阵词汇现代化收尾：约 280 处替换（破阵→攻破、布防→防护、
+  守阵者→守关 AI 等，品牌项按决策保留），45 文件 +575/-382。
+
+### Fixed
+- **CI 34 连败（run 41-74）修复**：package-lock.json 残缺条目外科手术——
+  workerd 平台二进制条目补全（缺 version/resolved/integrity，npm ci 抛
+  `Invalid Version`）、lock 元数据 0.4.0 → 0.7.3，无任何依赖升降级。
+
 ## [0.7.2] - 2026-09-16
 
 ### Changed
@@ -52,12 +69,37 @@
 - 观星台标题随视图切换为攻防榜/留言板，清残留旧词。
 - 退出改为对话框——误触可取消，「清 Key」独立勾选默认保留。
 
+## [0.7.0] - 2026-09-13
+
+### Removed
+- **旧榜退役**：名将榜 / 段位榜 / bestBreach / `/records` 全链路删除，
+  旧三表 DROP；破阵 payload 拆入 `breach_unclaimed`（未上榜夺旗回流表）。
+  榜单体系统一为攻防榜 + 留言板（v0.6.0）。
+
+### Fixed
+- CRLF 行尾下 `replace` 静默无效——app.js 去 bestBreach 引用的补丁
+  改行尾无关实现。
+
+> 注：本版引入的登录会话 500 回归于当夜修复，见 [0.7.1]。
+
 ## [0.6.0] - 2026-09-12
 
 ### Changed
 - 题目现代化：军务隐喻 → 现代企业 IT/物业/反诈/客服/邮件工具/MCP 场景。
 - 测试 / 关卡 / corpus 全面重命名（IT helpdesk / property CS / anti-fraud
   guard / RAG / email tool / MCP tool poisoning）。
+
+## [0.4.1] - 2026-09-13
+
+### Changed
+- 关卡降触发：守阵 prompt 去保密触发词，拒绝行为由角色设定隐式承载，
+  破阵难度回归 prompt 控制。
+
+## [0.4.0] - 2026-09-13
+
+### Changed
+- 难度重校：守阵 prompt 按 Gandalf 哲学瘦身 -55%——删变体枚举与
+  说教式防御，只给目标不给手段。
 
 ## [0.3.3] - 2026-08-30
 
