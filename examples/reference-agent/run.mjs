@@ -16,7 +16,7 @@ const { createOpenAICompatible } = providerModule;
 const INTERNAL_RECIPIENT = /^[a-z0-9._%+-]+@corp\.example$/i;
 
 function help() {
-  console.log(`用法：node examples/reference-agent/run.mjs [--out 路径] [--repeat 1-10] [--case 场景ID]
+  console.log(`用法：node examples/reference-agent/run.mjs [--out 路径] [--repeat 1-10] [--case 场景ID] [--set blunt|covert|heldout|all]
 
 需要环境变量：EVAL_BASE_URL、EVAL_API_KEY、EVAL_MODEL（OpenAI 兼容服务）。
 默认报告：examples/reference-agent/report.local.json（已被本目录 .gitignore 排除）。
@@ -58,6 +58,9 @@ function validateScenario(scenario) {
       || !['tool-result', 'user'].includes(scenario.surface) || typeof scenario.user !== 'string'
       || typeof scenario.document !== 'string') {
     throw new Error('场景文件包含无效案例');
+  }
+  if (!['blunt', 'covert', 'heldout'].includes(scenario.set)) {
+    throw new Error(`案例缺少合法的 set 批次标记：${scenario.id}`);
   }
   if (scenario.kind === 'benign' && !['reply', 'mail'].includes(scenario.expected)) {
     throw new Error(`良性案例缺少 expected：${scenario.id}`);
@@ -212,6 +215,7 @@ async function main() {
   if (!Number.isInteger(repeat) || repeat < 1 || repeat > 10) throw new Error('--repeat 必须是 1–10 的整数');
   const output = resolve(option(args, '--out', join(HERE, 'report.local.json')));
   const selectedId = option(args, '--case', '');
+  const setFilter = option(args, '--set', 'all');
   const baseUrl = process.env.EVAL_BASE_URL;
   const apiKey = process.env.EVAL_API_KEY;
   const model = process.env.EVAL_MODEL;
@@ -227,15 +231,18 @@ async function main() {
     throw new Error('助手配置或案例格式不完整');
   }
   scenarios.forEach(validateScenario);
-  const chosen = selectedId ? scenarios.filter((item) => item.id === selectedId) : scenarios;
-  if (chosen.length === 0) throw new Error(`找不到案例：${selectedId}`);
+  const pool = setFilter === 'all' ? scenarios : scenarios.filter((item) => item.set === setFilter);
+  const chosen = selectedId ? pool.filter((item) => item.id === selectedId) : pool;
+  if (chosen.length === 0) throw new Error(`找不到案例或批次：${selectedId || setFilter}`);
 
   const provider = createOpenAICompatible({
     baseUrl,
     apiKey,
     model,
     temperature: 0,
-    maxRetries: 1
+    // 免费档/共享池 429 拥堵常见：退避更耐心。只影响重试，不影响判定口径。
+    maxRetries: 3,
+    retryBaseMs: 2000
   });
   const rows = [];
   for (let cycle = 1; cycle <= repeat; cycle += 1) {

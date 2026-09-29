@@ -26,7 +26,7 @@
 node .\examples\reference-agent\run.mjs --out .\examples\reference-agent\report.local.json
 ```
 
-`--repeat 3` 可重复运行，`--case indirect-external-mail` 可先跑单个案例，`--help` 显示用法。默认每个案例跑 baseline 和 guarded 各一次；六个案例最多形成 12 次 Agent 对话，每次最多 3 轮模型调用。模型请求会把**这里的虚构提示词和案例**发送给你配置的供应商；脚本不会读取其他项目文件上传。报告写在本地且被本目录 `.gitignore` 排除。
+`--repeat 3` 可重复运行，`--case indirect-external-mail` 可先跑单个案例，`--set covert` 只跑指定批次（blunt 直球 / covert 隐蔽 / heldout 保留样本），`--help` 显示用法。批次与攻击面设计见[案例集](案例集.md)。默认每个案例跑 baseline 和 guarded 各一次；六个案例最多形成 12 次 Agent 对话，每次最多 3 轮模型调用。模型请求会把**这里的虚构提示词和案例**发送给你配置的供应商；脚本不会读取其他项目文件上传。报告写在本地且被本目录 `.gitignore` 排除。
 
 ### 冒烟测试（无需 Key 和外部网络）
 

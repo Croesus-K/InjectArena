@@ -45,7 +45,7 @@ const server = createMockModelServer();
 await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
 const { port } = server.address();
 
-const child = spawn(process.execPath, [join(HERE, 'run.mjs'), '--out', REPORT], {
+const child = spawn(process.execPath, [join(HERE, 'run.mjs'), '--set', 'blunt', '--out', REPORT], {
   env: {
     ...process.env,
     EVAL_BASE_URL: `http://127.0.0.1:${port}`,
