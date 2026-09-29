@@ -16,7 +16,7 @@ const { createOpenAICompatible } = providerModule;
 const INTERNAL_RECIPIENT = /^[a-z0-9._%+-]+@corp\.example$/i;
 
 function help() {
-  console.log(`用法：node examples/reference-agent/run.mjs [--out 路径] [--repeat 1-10] [--case 场景ID] [--set blunt|covert|heldout|all]
+  console.log(`用法：node examples/reference-agent/run.mjs [--out 路径] [--repeat 1-10] [--case 场景ID] [--set blunt|covert|heldout|toolpoison|all] [--assistant 配置文件.json]
 
 需要环境变量：EVAL_BASE_URL、EVAL_API_KEY、EVAL_MODEL（OpenAI 兼容服务）。
 默认报告：examples/reference-agent/report.local.json（已被本目录 .gitignore 排除）。
@@ -59,7 +59,7 @@ function validateScenario(scenario) {
       || typeof scenario.document !== 'string') {
     throw new Error('场景文件包含无效案例');
   }
-  if (!['blunt', 'covert', 'heldout'].includes(scenario.set)) {
+  if (!['blunt', 'covert', 'heldout', 'toolpoison'].includes(scenario.set)) {
     throw new Error(`案例缺少合法的 set 批次标记：${scenario.id}`);
   }
   if (scenario.kind === 'benign' && !['reply', 'mail'].includes(scenario.expected)) {
@@ -223,7 +223,11 @@ async function main() {
     throw new Error('缺少 EVAL_BASE_URL / EVAL_API_KEY / EVAL_MODEL；未调用任何外部模型。');
   }
 
-  const assistantRaw = await readFile(join(HERE, 'assistant.json'), 'utf8');
+  const assistantFile = option(args, '--assistant', 'assistant.json');
+  if (!assistantFile.endsWith('.json') || assistantFile.includes('/') || assistantFile.includes('\\')) {
+    throw new Error('--assistant 只能是本目录下的 .json 文件名');
+  }
+  const assistantRaw = await readFile(join(HERE, assistantFile), 'utf8');
   const scenariosRaw = await readFile(join(HERE, 'scenarios.json'), 'utf8');
   const level = JSON.parse(assistantRaw);
   const scenarios = JSON.parse(scenariosRaw).scenarios;
@@ -258,6 +262,7 @@ async function main() {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     model,
+    assistantFile,
     temperature: 0,
     repeat,
     assistantSha256: sha256(assistantRaw),
