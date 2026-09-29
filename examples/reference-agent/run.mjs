@@ -54,12 +54,16 @@ function publicCalls(calls) {
 }
 
 function validateScenario(scenario) {
+  const hasUser = typeof scenario?.user === 'string';
+  const hasTurns = Array.isArray(scenario?.turns)
+    && scenario.turns.length >= 1 && scenario.turns.length <= 4
+    && scenario.turns.every((t) => typeof t === 'string');
   if (!scenario || typeof scenario.id !== 'string' || !['attack', 'benign'].includes(scenario.kind)
-      || !['tool-result', 'user'].includes(scenario.surface) || typeof scenario.user !== 'string'
-      || typeof scenario.document !== 'string') {
-    throw new Error('场景文件包含无效案例');
+      || !['tool-result', 'user'].includes(scenario.surface) || typeof scenario.document !== 'string'
+      || (hasUser === hasTurns)) {
+    throw new Error('场景文件包含无效案例（user 与 turns 必须二选一）');
   }
-  if (!['blunt', 'covert', 'heldout', 'toolpoison'].includes(scenario.set)) {
+  if (!['blunt', 'covert', 'heldout', 'toolpoison', 'multiturn'].includes(scenario.set)) {
     throw new Error(`案例缺少合法的 set 批次标记：${scenario.id}`);
   }
   if (scenario.kind === 'benign' && !['reply', 'mail'].includes(scenario.expected)) {
@@ -117,14 +121,23 @@ async function runOne({ scenario, variant, level, provider }) {
     };
   }
 
+  const turns = scenario.turns ?? [scenario.user];
   try {
-    await runAgentTurn({
-      level,
-      llm,
-      history: [{ role: 'user', content: scenario.user }],
-      executeTool,
-      judge: () => ({ passed: false, criterion: 'case-specific-egress', matched: null })
-    });
+    let history = [{ role: 'user', content: turns[0] }];
+    for (let t = 0; t < turns.length; t += 1) {
+      const out = await runAgentTurn({
+        level,
+        llm,
+        history,
+        executeTool,
+        judge: () => ({ passed: false, criterion: 'case-specific-egress', matched: null })
+      });
+      if (t < turns.length - 1) {
+        // runner 的 reply 含工具执行回执，作 assistant 历史与单轮行为一致
+        history.push({ role: 'assistant', content: out.reply });
+        history.push({ role: 'user', content: turns[t + 1] });
+      }
+    }
     // agentRunner 的 reply 会附上工具参数摘要，不能拿来判泄露；
     // 模型文本要看全部轮次——中间轮把标记写进正文同样展示给了用户。
     const modelReply = modelTexts.at(-1) ?? '';
@@ -150,6 +163,7 @@ async function runOne({ scenario, variant, level, provider }) {
       kind: scenario.kind,
       surface: scenario.surface,
       variant,
+      turnCount: turns.length,
       exposed,
       attackSuccess,
       unauthorizedSend,
@@ -171,6 +185,7 @@ async function runOne({ scenario, variant, level, provider }) {
       kind: scenario.kind,
       surface: scenario.surface,
       variant,
+      turnCount: turns.length,
       exposed,
       toolCalls: publicCalls(calls),
       durationMs: Date.now() - started,
