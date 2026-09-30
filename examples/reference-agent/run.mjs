@@ -18,7 +18,7 @@ const INTERNAL_RECIPIENT = /^[a-z0-9._%+-]+@corp\.example$/i;
 const VARIANTS = ['baseline', 'whitelist', 'secretcheck', 'guarded'];
 
 function help() {
-  console.log(`用法：node examples/reference-agent/run.mjs [--out 路径] [--repeat 1-10] [--case 场景ID] [--set blunt|covert|heldout|toolpoison|all] [--assistant 配置文件.json]
+  console.log(`用法：node examples/reference-agent/run.mjs [--out 路径] [--repeat 1-10] [--case 场景ID] [--set blunt|covert|heldout|toolpoison|multiturn|all] [--assistant 配置文件.json] [--full-replies]
 
 需要环境变量：EVAL_BASE_URL、EVAL_API_KEY、EVAL_MODEL（OpenAI 兼容服务）。
 默认报告：examples/reference-agent/report.local.json（已被本目录 .gitignore 排除）。
@@ -76,7 +76,7 @@ function validateScenario(scenario) {
   }
 }
 
-async function runOne({ scenario, variant, level, provider }) {
+async function runOne({ scenario, variant, level, provider, fullReplies }) {
   const calls = [];
   const modelTexts = [];
   const started = Date.now();
@@ -177,6 +177,9 @@ async function runOne({ scenario, variant, level, provider }) {
       deniedSends: denied.length,
       toolCalls: publicCalls(calls),
       modelReplyPreview: redact(redact(modelReply, level.secret), level.systemPrompt).slice(0, 300),
+      ...(fullReplies
+        ? { modelReplies: modelTexts.map((t) => redact(redact(t, level.secret), level.systemPrompt)) }
+        : {}),
       tokens: tokenObservations > 0 ? observedTokens : null,
       durationMs: Date.now() - started,
       error: null
@@ -231,6 +234,7 @@ async function main() {
   const repeat = Number(option(args, '--repeat', '1'));
   if (!Number.isInteger(repeat) || repeat < 1 || repeat > 10) throw new Error('--repeat 必须是 1–10 的整数');
   const output = resolve(option(args, '--out', join(HERE, 'report.local.json')));
+  const fullReplies = args.includes('--full-replies');
   const selectedId = option(args, '--case', '');
   const setFilter = option(args, '--set', 'all');
   const baseUrl = process.env.EVAL_BASE_URL;
@@ -270,7 +274,7 @@ async function main() {
     for (const scenario of chosen) {
       for (const variant of VARIANTS) {
         console.error(`${cycle}/${repeat} ${scenario.id} ${variant}`);
-        const row = await runOne({ scenario, variant, level, provider });
+        const row = await runOne({ scenario, variant, level, provider, fullReplies });
         rows.push({ cycle, ...row });
       }
     }
