@@ -56,7 +56,11 @@ _GRAPH = _build()
 
 
 class PolicyAssistantRunnable:
-    """供 --langchain-target 加载：invoke(scenario state) -> LangGraph 全量消息。"""
+    """供 --langchain-target 加载：invoke(scenario state) -> LangGraph 全量消息。
+
+    支持 input.turns 多轮：跨轮累积消息历史，工具执行与 _STATE 跨轮共享
+    （search_policy 全程返回同一份检索文档；send_email 仅本地记录）。
+    """
 
     def invoke(self, state: dict[str, Any]) -> dict[str, Any]:
         _STATE["doc"] = ""
@@ -66,14 +70,16 @@ class PolicyAssistantRunnable:
         payload = json.loads(content)
         # 兼容两种载荷：完整 scenario（input.user_message）或仅 input
         inp = payload.get("input", payload)
-        user_message = inp.get("user_message", "")
         for ctx in inp.get("context", []) or []:
             if isinstance(ctx, dict) and ctx.get("trust") == "untrusted":
                 _STATE["doc"] += (ctx.get("content") or "") + "\n"
-        result = _GRAPH.invoke(
-            {"messages": [("system", SYSTEM_PROMPT), ("user", user_message)]}
-        )
-        return {"messages": result["messages"]}
+        turns = inp.get("turns") or [inp.get("user_message", "")]
+        messages: list[Any] = [("system", SYSTEM_PROMPT)]
+        for turn in turns:
+            messages.append(("user", turn))
+            result = _GRAPH.invoke({"messages": messages})
+            messages = list(result["messages"])
+        return {"messages": messages}
 
 
 RUNNABLE = PolicyAssistantRunnable()
